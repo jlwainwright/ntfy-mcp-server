@@ -3,6 +3,7 @@
  */
 import { NtfySubscriber } from './subscriber.js';
 import { NtfySubscriptionHandlers, NtfySubscriptionOptions } from './types.js';
+import { publish, NtfyPublishOptions, NtfyPublishResponse } from './publisher.js';
 
 // Export types
 export * from './types.js';
@@ -10,6 +11,9 @@ export * from './errors.js';
 
 // Export main classes
 export { NtfySubscriber };
+
+// Export publisher functions
+export { publish, NtfyPublishOptions, NtfyPublishResponse };
 
 // Export utility functions
 export { 
