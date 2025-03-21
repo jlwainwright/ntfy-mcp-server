@@ -14,6 +14,7 @@ import { configureContext, sanitizeInput } from "../utils/security.js";
 
 // Import tool registrations
 import { registerEchoTool } from "./tools/echoTool/index.js";
+import { registerNtfyTool } from "./tools/ntfyTool/index.js";
 
 // Import resource registrations
 import { registerEchoResource } from "./resources/echoResource/index.js";
@@ -156,7 +157,7 @@ export const createMcpServer = async () => {
     registeredTools: new Set(),
     registeredResources: new Set(),
     failedRegistrations: [],
-    requiredTools: new Set(['echo_message']), // Define tools that are required for the server to function properly
+    requiredTools: new Set(['echo_message', 'send_ntfy']), // Define tools that are required for the server to function properly
     requiredResources: new Set(['echo-resource']) // Define resources that are required for the server to function properly
   };
 
@@ -408,7 +409,8 @@ export const createMcpServer = async () => {
       // Register components with proper error handling
       const registrationPromises: Promise<RegistrationResult>[] = [
         registerComponent('tool', 'echo_message', () => registerEchoTool(server!)),
-        registerComponent('resource', 'echo-resource', () => registerEchoResource(server!))
+        registerComponent('tool', 'send_ntfy', () => registerNtfyTool(server!)),
+        registerComponent('resource', 'echo-resource', () => registerEchoResource(server!)),
       ];
       
       const registrationResults = await Promise.allSettled(registrationPromises);
