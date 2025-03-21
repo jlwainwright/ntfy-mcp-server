@@ -1,10 +1,10 @@
-# mcp-ts-template - Directory Structure
+# ntfy-mcp-server - Directory Structure
 
-Generated on: 2025-03-20 05:08:43
+Generated on: 2025-03-21 09:04:38
 
 
 ```
-mcp-ts-template
+ntfy-mcp-server
 ├── docs
     └── tree.md
 ├── logs
@@ -25,16 +25,30 @@ mcp-ts-template
     │   │   │   ├── README.md
     │   │   │   └── types.ts
     │   ├── tools
-    │   │   └── echoTool
+    │   │   ├── echoTool
     │   │   │   ├── echoMessage.ts
     │   │   │   ├── index.ts
     │   │   │   ├── README.md
+    │   │   │   └── types.ts
+    │   │   └── ntfyTool
+    │   │   │   ├── index.ts
+    │   │   │   ├── ntfyMessage.ts
     │   │   │   └── types.ts
     │   ├── utils
     │   │   ├── README.md
     │   │   └── registrationHelper.ts
     │   ├── README.md
     │   └── server.ts
+    ├── services
+    │   └── ntfy
+    │   │   ├── constants.ts
+    │   │   ├── errors.ts
+    │   │   ├── index.ts
+    │   │   ├── publisher.ts
+    │   │   ├── README.md
+    │   │   ├── subscriber.ts
+    │   │   ├── types.ts
+    │   │   └── utils.ts
     ├── types-global
     │   ├── errors.ts
     │   ├── mcp.ts
