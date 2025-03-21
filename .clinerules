@@ -1,11 +1,14 @@
 # MCP-TS-TEMPLATE DEVELOPER CHEAT SHEET
 
-## 📂 Project Structure
+# ntfy-mcp-server - Directory Structure
+
+Generated on: 2025-03-21 10:39:58
 
 ```
-mcp-ts-template
+ntfy-mcp-server
 ├── docs
     └── tree.md
+├── logs
 ├── scripts
     ├── clean.ts
     └── tree.ts
@@ -13,8 +16,7 @@ mcp-ts-template
     ├── config
     │   ├── envConfig.ts
     │   ├── index.ts
-    │   ├── mcpConfig.ts
-    │   └── README.md
+    │   └── mcpConfig.ts
     ├── mcp-server
     │   ├── resources
     │   │   └── echoResource
@@ -23,20 +25,26 @@ mcp-ts-template
     │   │   │   ├── README.md
     │   │   │   └── types.ts
     │   ├── tools
-    │   │   └── echoTool
-    │   │   │   ├── echoMessage.ts
+    │   │   └── ntfyTool
     │   │   │   ├── index.ts
-    │   │   │   ├── README.md
+    │   │   │   ├── ntfyMessage.ts
     │   │   │   └── types.ts
     │   ├── utils
-    │   │   ├── README.md
     │   │   └── registrationHelper.ts
     │   ├── README.md
     │   └── server.ts
+    ├── services
+    │   └── ntfy
+    │   │   ├── constants.ts
+    │   │   ├── errors.ts
+    │   │   ├── index.ts
+    │   │   ├── publisher.ts
+    │   │   ├── subscriber.ts
+    │   │   ├── types.ts
+    │   │   └── utils.ts
     ├── types-global
     │   ├── errors.ts
     │   ├── mcp.ts
-    │   ├── README.md
     │   └── tool.ts
     ├── utils
     │   ├── errorHandler.ts
@@ -44,12 +52,23 @@ mcp-ts-template
     │   ├── index.ts
     │   ├── logger.ts
     │   ├── rateLimiter.ts
-    │   ├── README.md
     │   ├── requestContext.ts
     │   ├── sanitization.ts
     │   └── security.ts
     └── index.ts
+├── .clinerules
+├── .clinerules-code
+├── .env.example
+├── LICENSE
+├── package-lock.json
+├── package.json
+├── README.md
+├── tsconfig.json
+└── tsconfig.scripts.json
+
 ```
+
+_Note: This tree excludes files and directories matched by .gitignore and common patterns like node_modules._
 
 ## 🚀 Quick Start Commands
 

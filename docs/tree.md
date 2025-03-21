@@ -1,6 +1,6 @@
 # ntfy-mcp-server - Directory Structure
 
-Generated on: 2025-03-21 09:04:38
+Generated on: 2025-03-21 10:39:58
 
 
 ```
@@ -15,8 +15,7 @@ ntfy-mcp-server
     ├── config
     │   ├── envConfig.ts
     │   ├── index.ts
-    │   ├── mcpConfig.ts
-    │   └── README.md
+    │   └── mcpConfig.ts
     ├── mcp-server
     │   ├── resources
     │   │   └── echoResource
@@ -25,17 +24,11 @@ ntfy-mcp-server
     │   │   │   ├── README.md
     │   │   │   └── types.ts
     │   ├── tools
-    │   │   ├── echoTool
-    │   │   │   ├── echoMessage.ts
-    │   │   │   ├── index.ts
-    │   │   │   ├── README.md
-    │   │   │   └── types.ts
     │   │   └── ntfyTool
     │   │   │   ├── index.ts
     │   │   │   ├── ntfyMessage.ts
     │   │   │   └── types.ts
     │   ├── utils
-    │   │   ├── README.md
     │   │   └── registrationHelper.ts
     │   ├── README.md
     │   └── server.ts
@@ -45,14 +38,12 @@ ntfy-mcp-server
     │   │   ├── errors.ts
     │   │   ├── index.ts
     │   │   ├── publisher.ts
-    │   │   ├── README.md
     │   │   ├── subscriber.ts
     │   │   ├── types.ts
     │   │   └── utils.ts
     ├── types-global
     │   ├── errors.ts
     │   ├── mcp.ts
-    │   ├── README.md
     │   └── tool.ts
     ├── utils
     │   ├── errorHandler.ts
@@ -60,13 +51,13 @@ ntfy-mcp-server
     │   ├── index.ts
     │   ├── logger.ts
     │   ├── rateLimiter.ts
-    │   ├── README.md
     │   ├── requestContext.ts
     │   ├── sanitization.ts
     │   └── security.ts
     └── index.ts
 ├── .clinerules
 ├── .clinerules-code
+├── .env.example
 ├── LICENSE
 ├── package-lock.json
 ├── package.json
