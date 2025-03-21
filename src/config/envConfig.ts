@@ -1,3 +1,5 @@
+// Need to have Node.js types available
+
 import { BaseErrorCode, McpError } from '../types-global/errors.js';
 import { ErrorHandler } from '../utils/errorHandler.js';
 import { logger } from '../utils/logger.js';
@@ -142,6 +144,13 @@ function loadEnvConfig() {
     rateLimit: {
       windowMs: parseNumericEnv('RATE_LIMIT_WINDOW_MS', 60000, 1000, 3600000), // 1 minute default, 1s min, 1h max
       maxRequests: parseNumericEnv('RATE_LIMIT_MAX_REQUESTS', 100, 1, 10000) // 100 requests per minute default, 1-10000 range
+    },
+    
+    // Ntfy configuration
+    ntfy: {
+      apiKey: process.env.NTFY_API_KEY || '',
+      baseUrl: process.env.NTFY_BASE_URL || 'https://ntfy.sh',
+      defaultTopic: process.env.NTFY_TOPIC || ''
     }
   };
 
@@ -151,6 +160,13 @@ function loadEnvConfig() {
     logLevel: config.logLevel,
     rateLimitWindowMs: config.rateLimit.windowMs,
     rateLimitMaxRequests: config.rateLimit.maxRequests
+  });
+  
+  // Log ntfy config (but mask sensitive data)
+  envLogger.info(`Ntfy configuration loaded`, {
+    baseUrl: config.ntfy.baseUrl,
+    defaultTopic: config.ntfy.defaultTopic ? config.ntfy.defaultTopic : '(not set)',
+    apiKeyPresent: config.ntfy.apiKey ? '✓' : '✗'
   });
 
   return config;
@@ -179,3 +195,4 @@ export const getEnvironment = () => envConfig().environment;
 export const getLogLevel = () => envConfig().logLevel;
 export const getRateLimit = () => envConfig().rateLimit;
 export const getSecurity = () => envConfig().security;
+export const getNtfyConfig = () => envConfig().ntfy;
