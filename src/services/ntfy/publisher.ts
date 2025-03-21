@@ -2,9 +2,25 @@
  * Ntfy publisher implementation for sending notifications
  */
 import { DEFAULT_NTFY_BASE_URL, DEFAULT_REQUEST_TIMEOUT, ERROR_MESSAGES } from './constants.js';
-import { NtfyConnectionError, NtfyInvalidTopicError } from './errors.js';
+import { NtfyConnectionError, NtfyInvalidTopicError, ntfyErrorMapper } from './errors.js';
 import { NtfyAction, NtfyAttachment, NtfyPriority } from './types.js';
-import { createRequestHeaders, createTimeout, isValidTopic } from './utils.js';
+import { 
+  createTimeout, 
+  validateTopicSync, 
+  createRequestHeadersSync 
+} from './utils.js';
+import { ErrorHandler } from '../../utils/errorHandler.js';
+import { logger } from '../../utils/logger.js';
+import { sanitizeInput, sanitizeInputForLogging } from '../../utils/sanitization.js';
+import { createRequestContext } from '../../utils/requestContext.js';
+import { idGenerator } from '../../utils/idGenerator.js';
+import { BaseErrorCode } from '../../types-global/errors.js';
+
+// Create a module-specific logger
+const publisherLogger = logger.createChildLogger({ 
+  module: 'NtfyPublisher',
+  serviceId: idGenerator.generateRandomString(8)
+});
 
 /**
  * Options for publishing to ntfy topics
@@ -77,134 +93,219 @@ export async function publish(
   message: string,
   options: NtfyPublishOptions = {}
 ): Promise<NtfyPublishResponse> {
-  // Validate topic
-  if (!isValidTopic(topic)) {
-    throw new NtfyInvalidTopicError(ERROR_MESSAGES.INVALID_TOPIC, topic);
-  }
+  return ErrorHandler.tryCatch(
+    async () => {
+      // Create request context for tracking
+      const requestCtx = createRequestContext({
+        operation: 'publishNtfyMessage',
+        topic,
+        messageLength: message?.length,
+        hasTitle: !!options.title,
+        hasTags: Array.isArray(options.tags) && options.tags.length > 0,
+        priority: options.priority,
+        publishId: idGenerator.generateRandomString(8)
+      });
 
-  // Build URL
-  const baseUrl = options.baseUrl || DEFAULT_NTFY_BASE_URL;
-  const url = `${baseUrl}/${topic}`;
+      publisherLogger.info('Publishing message', { 
+        topic,
+        messageLength: message?.length,
+        hasTitle: !!options.title,
+        hasTags: Array.isArray(options.tags) && options.tags.length > 0,
+        priority: options.priority,
+        requestId: requestCtx.requestId
+      });
+      
+      // Validate topic synchronously for better performance
+      if (!validateTopicSync(topic)) {
+        publisherLogger.error('Invalid topic name', { 
+          topic,
+          requestId: requestCtx.requestId 
+        });
+        throw new NtfyInvalidTopicError(ERROR_MESSAGES.INVALID_TOPIC, topic);
+      }
 
-  // Prepare headers
-  const initialHeaders = createRequestHeaders({
-    auth: options.auth,
-    username: options.username,
-    password: options.password,
-    headers: options.headers,
-  });
+      // Build URL
+      const baseUrl = sanitizeInput.url(options.baseUrl || DEFAULT_NTFY_BASE_URL);
+      const url = `${baseUrl}/${sanitizeInput.string(topic)}`;
+      
+      publisherLogger.debug('Publishing to URL', { 
+        url,
+        requestId: requestCtx.requestId 
+      });
+      
+      // Prepare headers - using sync version for performance
+      const initialHeaders = createRequestHeadersSync({
+        auth: options.auth,
+        username: options.username,
+        password: options.password,
+        headers: options.headers,
+      });
 
-  // Convert HeadersInit to a Record for easier manipulation
-  const headers: Record<string, string> = {};
-  
-  // Copy initial headers to our record object
-  if (initialHeaders instanceof Headers) {
-    initialHeaders.forEach((value, key) => {
-      headers[key] = value;
-    });
-  } else if (Array.isArray(initialHeaders)) {
-    for (const [key, value] of initialHeaders) {
-      headers[key] = value;
+      // Convert HeadersInit to a Record for easier manipulation
+      const headers: Record<string, string> = {};
+      
+      // Copy initial headers to our record object
+      if (initialHeaders instanceof Headers) {
+        initialHeaders.forEach((value, key) => {
+          headers[key] = value;
+        });
+      } else if (Array.isArray(initialHeaders)) {
+        for (const [key, value] of initialHeaders) {
+          headers[key] = value;
+        }
+      } else if (initialHeaders) {
+        Object.assign(headers, initialHeaders);
+      }
+
+      // Set content type
+      headers['Content-Type'] = 'text/plain';
+
+      // Add special headers for ntfy features
+      if (options.title) {
+        headers['X-Title'] = sanitizeInput.string(options.title);
+      }
+
+      if (options.tags && options.tags.length > 0) {
+        // Sanitize each tag
+        const sanitizedTags = options.tags.map(tag => sanitizeInput.string(tag));
+        headers['X-Tags'] = sanitizedTags.join(',');
+      }
+
+      if (options.priority) {
+        headers['X-Priority'] = options.priority.toString();
+      }
+
+      if (options.click) {
+        headers['X-Click'] = sanitizeInput.url(options.click);
+      }
+
+      if (options.actions && options.actions.length > 0) {
+        // We need to sanitize the actions
+        const sanitizedActions = options.actions.map(action => ({
+          id: sanitizeInput.string(action.id),
+          label: sanitizeInput.string(action.label),
+          action: sanitizeInput.string(action.action),
+          url: action.url ? sanitizeInput.url(action.url) : undefined,
+          method: action.method ? sanitizeInput.string(action.method) : undefined,
+          headers: action.headers,
+          body: action.body ? sanitizeInput.string(action.body) : undefined,
+          clear: action.clear
+        }));
+        headers['X-Actions'] = JSON.stringify(sanitizedActions);
+      }
+
+      if (options.attachment) {
+        headers['X-Attach'] = sanitizeInput.url(options.attachment.url);
+        if (options.attachment.name) {
+          headers['X-Filename'] = sanitizeInput.string(options.attachment.name);
+        }
+      }
+
+      if (options.email) {
+        headers['X-Email'] = sanitizeInput.string(options.email);
+      }
+
+      if (options.delay) {
+        headers['X-Delay'] = sanitizeInput.string(options.delay);
+      }
+
+      if (options.cache) {
+        headers['X-Cache'] = sanitizeInput.string(options.cache);
+      }
+
+      if (options.firebase) {
+        headers['X-Firebase'] = sanitizeInput.string(options.firebase);
+      }
+
+      if (options.id) {
+        headers['X-ID'] = sanitizeInput.string(options.id);
+      }
+
+      if (options.expires) {
+        headers['X-Expires'] = sanitizeInput.string(options.expires);
+      }
+
+      if (options.markdown) {
+        headers['X-Markdown'] = 'true';
+      }
+
+      // Send request with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT);
+
+      try {
+        publisherLogger.debug('Sending HTTP request', { 
+          url, 
+          method: 'POST',
+          requestId: requestCtx.requestId 
+        });
+        
+        const response = await Promise.race([
+          fetch(url, {
+            method: 'POST',
+            headers,
+            body: message,
+            signal: controller.signal,
+          }),
+          createTimeout(DEFAULT_REQUEST_TIMEOUT),
+        ]);
+
+        clearTimeout(timeoutId);
+
+        // Check response status
+        if (!response.ok) {
+          publisherLogger.error('HTTP error from ntfy server', { 
+            status: response.status, 
+            statusText: response.statusText,
+            url,
+            requestId: requestCtx.requestId
+          });
+          throw new NtfyConnectionError(
+            `HTTP Error: ${response.status} ${response.statusText}`,
+            url
+          );
+        }
+
+        // Parse response
+        const result = await response.json();
+        
+        publisherLogger.info('Message published successfully', { 
+          messageId: result.id,
+          topic: result.topic,
+          requestId: requestCtx.requestId
+        });
+        
+        return result as NtfyPublishResponse;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        
+        if (error instanceof NtfyInvalidTopicError) {
+          throw error;
+        }
+
+        publisherLogger.error('Failed to publish message', {
+          error: error instanceof Error ? error.message : String(error),
+          topic,
+          url,
+          requestId: requestCtx.requestId
+        });
+
+        throw new NtfyConnectionError(
+          `Error publishing to topic: ${error instanceof Error ? error.message : String(error)}`,
+          url
+        );
+      }
+    },
+    {
+      operation: 'publishNtfyMessage',
+      context: { topic },
+      input: {
+        message: message?.length > 100 ? `${message.substring(0, 100)}...` : message,
+        options: sanitizeInputForLogging(options)
+      },
+      errorCode: BaseErrorCode.SERVICE_UNAVAILABLE,
+      errorMapper: ntfyErrorMapper,
+      rethrow: true
     }
-  } else if (initialHeaders) {
-    Object.assign(headers, initialHeaders);
-  }
-
-  // Set content type
-  headers['Content-Type'] = 'text/plain';
-
-  // Add special headers for ntfy features
-  if (options.title) {
-    headers['X-Title'] = options.title;
-  }
-
-  if (options.tags && options.tags.length > 0) {
-    headers['X-Tags'] = options.tags.join(',');
-  }
-
-  if (options.priority) {
-    headers['X-Priority'] = options.priority.toString();
-  }
-
-  if (options.click) {
-    headers['X-Click'] = options.click;
-  }
-
-  if (options.actions && options.actions.length > 0) {
-    headers['X-Actions'] = JSON.stringify(options.actions);
-  }
-
-  if (options.attachment) {
-    headers['X-Attach'] = options.attachment.url;
-    if (options.attachment.name) {
-      headers['X-Filename'] = options.attachment.name;
-    }
-  }
-
-  if (options.email) {
-    headers['X-Email'] = options.email;
-  }
-
-  if (options.delay) {
-    headers['X-Delay'] = options.delay;
-  }
-
-  if (options.cache) {
-    headers['X-Cache'] = options.cache;
-  }
-
-  if (options.firebase) {
-    headers['X-Firebase'] = options.firebase;
-  }
-
-  if (options.id) {
-    headers['X-ID'] = options.id;
-  }
-
-  if (options.expires) {
-    headers['X-Expires'] = options.expires;
-  }
-
-  if (options.markdown) {
-    headers['X-Markdown'] = 'true';
-  }
-
-  try {
-    // Send request with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT);
-
-    const response = await Promise.race([
-      fetch(url, {
-        method: 'POST',
-        headers,
-        body: message,
-        signal: controller.signal,
-      }),
-      createTimeout(DEFAULT_REQUEST_TIMEOUT),
-    ]);
-
-    clearTimeout(timeoutId);
-
-    // Check response status
-    if (!response.ok) {
-      throw new NtfyConnectionError(
-        `HTTP Error: ${response.status} ${response.statusText}`,
-        url
-      );
-    }
-
-    // Parse response
-    const result = await response.json();
-    return result as NtfyPublishResponse;
-  } catch (error) {
-    if (error instanceof NtfyInvalidTopicError) {
-      throw error;
-    }
-
-    throw new NtfyConnectionError(
-      `Error publishing to topic: ${error instanceof Error ? error.message : String(error)}`,
-      url
-    );
-  }
+  );
 }

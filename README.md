@@ -1,65 +1,64 @@
-# MCP TypeScript Template
+# NTFY MCP Server
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)](https://www.typescriptlang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-1.7.0-green.svg)](https://modelcontextprotocol.io/)
 [![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)]()
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Status](https://img.shields.io/badge/Status-Stable-green.svg)](https://github.com/cyanheads/mcp-ts-template/issues)
+[![Status](https://img.shields.io/badge/Status-Beta-orange.svg)](https://github.com/cyanheads/mcp-ts-template/issues)
 [![GitHub](https://img.shields.io/github/stars/cyanheads/mcp-ts-template?style=social)](https://github.com/cyanheads/mcp-ts-template)
 
-A beginner-friendly foundation for building [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers (and in the future also clients) with TypeScript. This template provides a comprehensive starting point with production-ready utilities, well-structured code, and working examples for building an MCP server.
+A powerful [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server for integrating [ntfy](https://ntfy.sh/) notification services with AI systems. This server enables AI models to send notifications to various devices through the ntfy publish/subscribe service.
 
-Copy this repo to kickstart your own MCP server and set your **vibe code** session up for success!
+Use this server to empower your AI assistants to send real-time notifications to phones, desktops, and other devices!
 
-## Using this template as your repo will get you:
+## Using this server will get you:
 
-- **Utilities**: A set of reusable utilities for logging, error handling, ID generation, rate limiting, and request context management.
+- **Notification Capabilities**: Send instant notifications from AI systems to any device with ntfy integration.
+- **Rich Message Formatting**: Support for titles, tags, priorities, action buttons, and attachments.
 - **Type Safety**: Strong typing with TypeScript to catch errors at compile time.
 - **Security**: Built-in security features to protect against common vulnerabilities.
 - **Error Handling**: A robust error handling system that categorizes and formats errors consistently.
-- **Documentation**: Comprehensive documentation for tools and resources, including usage examples and implementation details.
-- **Example Implementations**: Working examples of [echo_message (tool)](src/mcp-server/tools/echoTool/README.md) and [echo://hello (resource)](src/mcp-server/resources/echoResource/README.md) to help you get started quickly.
+- **Subscription Support**: Listen for incoming notifications (future feature).
 
-> **.clinerules**: This repository includes a [.clinerules](.clinerules) file that serves as a developer cheat sheet for your LLM coding agent with quick reference for the codebase patterns, file locations, and code snippets. When copying this template for your own project, be sure to update the cheat sheet to reflect your modifications and additions.
+> **.clinerules**: This repository includes a [.clinerules](.clinerules) file that serves as a developer cheat sheet for your LLM coding agent with quick reference for the codebase patterns, file locations, and code snippets.
 
 ## Table of Contents
 
 - [Overview](#overview)
-  - [What is Model Context Protocol?](#what-is-model-context-protocol)
+  - [What is NTFY?](#what-is-ntfy)
   - [Architecture & Components](#architecture--components)
 - [Features](#features)
   - [Core Utilities](#core-utilities)
   - [Type Safety](#type-safety)
   - [Error Handling](#error-handling)
   - [Security](#security)
-  - [Example Implementations](#example-implementations)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Project Structure](#project-structure)
-- [Tool & Resource Documentation](#tool--resource-documentation)
-  - [Tools](#tools)
-  - [Resources](#resources)
+- [Tool Documentation](#tool-documentation)
+  - [Send NTFY](#send-ntfy)
 - [Development Guidelines](#development-guidelines)
-  - [Adding a New Tool](#adding-a-new-tool)
-  - [Adding a New Resource](#adding-a-new-resource)
+  - [Adding Advanced Features](#adding-advanced-features)
 - [Future Plans](#future-plans)
 - [License](#license)
 
 ## Overview
 
-### What is Model Context Protocol?
+### What is NTFY?
 
-Model Context Protocol (MCP) is a framework that enables AI systems to interact with external tools and resources. It allows language models to:
+[NTFY](https://ntfy.sh/) is a simple HTTP-based pub-sub notification service that enables sending push notifications to your phone or desktop via scripts from any computer. It works without signing up or installing an app, using simple HTTP requests to trigger notifications.
 
-- Execute **tools** that perform actions and return results
-- Access structured **resources** that provide information
-- Create contextual workflows through standardized interfaces
+This MCP server wraps NTFY's functionality in a standardized Model Context Protocol interface, allowing AI systems to:
 
-This template gives you a head start in building MCP servers that can be used by AI systems to extend their capabilities.
+- Send notifications to any device with the ntfy app or integration
+- Configure notification options like priority, tags, and actions
+- Schedule delayed notifications
+- Attach images or files to notifications (via URLs)
+- Add action buttons to notifications
 
 ### Architecture & Components
 
-The template follows a modular architecture designed for clarity and extensibility:
+The server follows a modular architecture designed for clarity and extensibility:
 
 <details>
 <summary>Click to expand architecture diagram</summary>
@@ -89,14 +88,14 @@ flowchart TB
 
     subgraph Implementation["Implementation Layer"]
         direction LR
-        Tool["Tools"]
-        Resource["Resources"]
+        NtfyTool["NTFY Tool"]
+        NtfyService["NTFY Service"]
         Util["Utilities"]
 
-        Tool --> Server
-        Resource --> Server
-        Util --> Tool
-        Util --> Resource
+        NtfyTool --> Server
+        NtfyTool --> NtfyService
+        Util --> NtfyTool
+        Util --> NtfyService
     end
 
     San --> Config
@@ -105,7 +104,7 @@ flowchart TB
     classDef layer fill:#2d3748,stroke:#4299e1,stroke-width:3px,rx:5,color:#fff
     classDef component fill:#1a202c,stroke:#a0aec0,stroke-width:2px,rx:3,color:#fff
     class API,Core,Implementation layer
-    class MCP,Val,San,Config,Logger,Error,Server,Tool,Resource,Util component
+    class MCP,Val,San,Config,Logger,Error,Server,NtfyTool,NtfyService,Util component
 ```
 
 </details>
@@ -115,27 +114,29 @@ Core Components:
 - **Configuration System**: Environment-aware configuration with validation
 - **Logging System**: Structured logging with sensitive data redaction
 - **Error Handling**: Centralized error processing with consistent patterns
-- **MCP Server**: Protocol implementation for tools and resources
-- **Validation Layer**: Input validation using [Zod](https://github.com/colinhacks/zod) schemas
+- **MCP Server**: Protocol implementation for tools
+- **NTFY Service**: Core service for interacting with the ntfy API
+- **Validation Layer**: Input validation using schemas
 - **Utilities**: Reusable utility functions for common operations
 
 ## Features
 
 ### Core Utilities
 
-- **[Logging](src/utils/README.md#-logger)**: Configurable logging with file rotation and sensitive data redaction
-- **[Error Handling](src/utils/README.md#-error-handler)**: Pattern-based error classification and standardized reporting
-- **[ID Generation](src/utils/README.md#-id-generator)**: Secure unique identifier creation with prefix support
-- **[Rate Limiting](src/utils/README.md#-rate-limiter)**: Request throttling to prevent API abuse
-- **[Request Context](src/utils/README.md#-request-context)**: Request tracking and correlation
-- **[Sanitization](src/utils/README.md#-sanitization)**: Input validation and cleaning
+- **Logging**: Configurable logging with file rotation and sensitive data redaction
+- **Error Handling**: Pattern-based error classification and standardized reporting
+- **ID Generation**: Secure unique identifier creation with prefix support
+- **Rate Limiting**: Request throttling to prevent API abuse
+- **Request Context**: Request tracking and correlation
+- **Sanitization**: Input validation and cleaning
 
 ### Type Safety
 
-- **[Global Types](src/types-global/README.md)**: Shared type definitions for consistent interfaces
-- **[Error Types](src/types-global/README.md#error-types)**: Standardized error codes and structures
-- **[MCP Protocol Types](src/types-global/README.md#mcp-protocol-types)**: Type definitions for the MCP protocol
-- **[Tool Types](src/types-global/README.md#tool-types)**: Interfaces for tool registration and configuration
+- **Global Types**: Shared type definitions for consistent interfaces
+- **Error Types**: Standardized error codes and structures
+- **MCP Protocol Types**: Type definitions for the MCP protocol
+- **Tool Types**: Interfaces for tool registration and configuration
+- **NTFY Types**: Specialized types for ntfy notification parameters
 
 ### Error Handling
 
@@ -151,12 +152,6 @@ Core Components:
 - **Parameter Bounds**: Enforced limits to prevent abuse
 - **Sensitive Data Redaction**: Automatic redaction in logs
 
-### Example Implementations
-
-- **[Echo Tool](src/mcp-server/tools/echoTool/README.md)**: Complete example of a tool implementation
-- **[Echo Resource](src/mcp-server/resources/echoResource/README.md)**: Complete example of a resource implementation
-- **[Registration Helpers](src/mcp-server/utils/README.md)**: Utilities for consistent component registration
-
 ## Installation
 
 ### Prerequisites
@@ -169,8 +164,8 @@ Core Components:
 1. Clone this repository:
 
    ```bash
-   git clone https://github.com/cyanheads/mcp-ts-template.git
-   cd mcp-ts-template
+   git clone https://github.com/cyanheads/ntfy-mcp-server.git
+   cd ntfy-mcp-server
    ```
 
 2. Install dependencies:
@@ -179,20 +174,22 @@ Core Components:
    npm install
    ```
 
-3. Build the project:
+3. Configure environment variables (see [Configuration](#configuration))
+
+4. Build the project:
 
    ```bash
    npm run build
    ```
 
-4. Start the server:
+5. Start the server:
    ```bash
    npm run start
    ```
 
 ## Configuration
 
-### Environment Variables (Optional)
+### Environment Variables
 
 Create a `.env` file based on `.env.example`:
 
@@ -201,6 +198,11 @@ Create a `.env` file based on `.env.example`:
 NODE_ENV=development # development, production
 LOG_LEVEL=info # debug, info, warn, error
 
+# NTFY Configuration
+NTFY_BASE_URL=https://ntfy.sh # the ntfy server base URL (default: https://ntfy.sh)
+NTFY_DEFAULT_TOPIC=your-topic # your default ntfy topic (required)
+NTFY_API_KEY=your-api-key # optional API key for reserved topics
+
 # Rate Limiting
 RATE_LIMIT_WINDOW_MS=60000
 RATE_LIMIT_MAX_REQUESTS=100
@@ -208,7 +210,7 @@ RATE_LIMIT_MAX_REQUESTS=100
 
 ### Configuration System
 
-The [configuration system](src/config/README.md) provides a flexible way to manage settings:
+The configuration system provides a flexible way to manage settings:
 
 - **Environment Config**: Load settings from environment variables
 - **MCP Servers Config**: Configure MCP server connections (for future client implementations)
@@ -220,100 +222,133 @@ The codebase follows a modular structure:
 
 ```bash
 src/
-├── config/                 # Configuration management
-│   ├── envConfig.ts        # Environment variable handling
-│   ├── index.ts            # Unified configuration
-│   └── mcpConfig.ts        # MCP server configuration
+├── config/                  # Configuration management
+│   ├── envConfig.ts         # Environment variable handling
+│   ├── index.ts             # Unified configuration
+│   └── mcpConfig.ts         # MCP server configuration
 │
-├── mcp-server/             # MCP server implementation
-│   ├── resources/          # Resource implementations
-│   │   └── echoResource/   # Example resource
-│   ├── tools/              # Tool implementations
-│   │   └── echoTool/       # Example tool
-│   └── utils/              # Server utilities
+├── mcp-server/              # MCP server implementation
+│   ├── tools/               # Tool implementations
+│   │   └── ntfyTool/        # NTFY notification tool
+│   └── utils/               # Server utilities
 │       └── registrationHelper.ts  # Registration helpers
 │
-├── types-global/           # Shared type definitions
-│   ├── errors.ts           # Error types and codes
-│   ├── mcp.ts              # MCP protocol types
-│   └── tool.ts             # Tool registration types
+├── services/                # Core services
+│   └── ntfy/                # NTFY service implementation
+│       ├── publisher.ts     # Notification publishing
+│       ├── subscriber.ts    # Notification subscribing
+│       ├── types.ts         # NTFY-specific types
+│       └── utils.ts         # NTFY utility functions
 │
-├── utils/                  # Common utilities
-│   ├── errorHandler.ts     # Error handling
-│   ├── idGenerator.ts      # ID generation
-│   ├── logger.ts           # Logging system
-│   ├── rateLimiter.ts      # Rate limiting
-│   ├── requestContext.ts   # Request context
-│   ├── sanitization.ts     # Input sanitization
-│   └── security.ts         # Security utilities
+├── types-global/            # Shared type definitions
+│   ├── errors.ts            # Error types and codes
+│   ├── mcp.ts               # MCP protocol types
+│   └── tool.ts              # Tool registration types
 │
-└── [index.ts](src/index.ts)                # Application entry point
-.clinerules                 # Developer cheat sheet for LLM coding agent
+├── utils/                   # Common utilities
+│   ├── errorHandler.ts      # Error handling
+│   ├── idGenerator.ts       # ID generation
+│   ├── logger.ts            # Logging system
+│   ├── rateLimiter.ts       # Rate limiting
+│   ├── requestContext.ts    # Request context
+│   ├── sanitization.ts      # Input sanitization
+│   └── security.ts          # Security utilities
+│
+└── index.ts                 # Application entry point
 ```
 
-## Tool & Resource Documentation
+## Tool Documentation
 
-### Tools
+### Send NTFY
 
-| Tool          | Description                                                                                                                      |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Echo Tool** | Formats and echoes messages with various options. Demonstrates input validation, error handling, and proper response formatting. |
+The `send_ntfy` tool allows sending notifications to any device with ntfy integration.
 
-See the [Echo Tool documentation](src/mcp-server/tools/echoTool/README.md) for detailed usage examples and implementation details.
+#### Parameters
 
-### Resources
+| Parameter  | Type       | Description                                             | Required |
+| ---------- | ---------- | ------------------------------------------------------- | -------- |
+| topic      | string     | The ntfy topic to send the notification to              | Yes      |
+| message    | string     | The notification message body                           | Yes      |
+| title      | string     | The notification title                                  | No       |
+| tags       | string[]   | Tags that appear as emojis (e.g., ["warning", "robot"]) | No       |
+| priority   | number     | Message priority (1-5, where 5 is highest)              | No       |
+| click      | string     | URL to open when notification is clicked                | No       |
+| actions    | Action[]   | Action buttons to display in the notification           | No       |
+| attachment | Attachment | Attachment URL and optional name                        | No       |
+| email      | string     | Email address to send the notification to               | No       |
+| delay      | string     | Delay the message (e.g., "30m", "1h", "tomorrow")       | No       |
+| markdown   | boolean    | Whether to format the message as markdown               | No       |
+| baseUrl    | string     | Base URL for the ntfy server (default: https://ntfy.sh) | No       |
 
-| Resource          | Description                                                                                                                            |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **Echo Resource** | Returns echo messages based on input parameters. Demonstrates resource registration, URI handling, and consistent response formatting. |
+#### Usage Example
 
-See the [Echo Resource documentation](src/mcp-server/resources/echoResource/README.md) for detailed usage examples and implementation details.
+```json
+{
+  "topic": "my-topic",
+  "message": "Server deployment completed successfully!",
+  "title": "Deployment Status",
+  "tags": ["white_check_mark", "rocket"],
+  "priority": 3,
+  "actions": [
+    {
+      "id": "view",
+      "label": "View Dashboard",
+      "action": "view",
+      "url": "https://dashboard.example.com"
+    }
+  ]
+}
+```
 
 ## Development Guidelines
 
-### Adding a New Tool
+### Adding Advanced Features
 
-1. Create a new directory under [`src/mcp-server/tools/`](src/mcp-server/tools/)
-2. Define types and schemas in a `types.ts` file
-3. Implement the handler in a dedicated file
-4. Create an `index.ts` file that registers the tool
-5. Add your tool to the server registration in [`src/mcp-server/server.ts`](src/mcp-server/server.ts)
+1. Extend the NTFY service in `src/services/ntfy/`
+2. Add new parameters or functionality to the tool in `src/mcp-server/tools/ntfyTool/`
+3. Ensure proper validation and error handling for new features
+4. Update the type definitions as needed
 
-Example tool registration:
+Example of extending the tool:
 
 ```typescript
-// In your tool's index.ts
-export const registerMyTool = async (server: McpServer): Promise<void> => {
-  return registerTool(server, { name: "my_tool" }, async (server, logger) => {
-    server.tool(
-      "my_tool",
-      {
-        /* input schema */
-      },
-      async (params) => {
-        // Your implementation
-      }
-    );
-  });
-};
+// In your ntfyTool/index.ts
+server.tool(
+  "send_ntfy",
+  {
+    topic: z
+      .string()
+      .min(1)
+      .describe("The ntfy topic to send the notification to"),
+    message: z.string().min(1).describe("The message to send"),
+    // Add your new parameters here
+    customSound: z
+      .string()
+      .optional()
+      .describe("Custom sound for the notification"),
+  },
+  async (params) => {
+    // Implement handling for the new parameter
+    const result = await ntfyService.send({
+      ...params,
+      // Process new parameters as needed
+    });
 
-// In src/mcp-server/server.ts
-await registerMyTool(mcpServer);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }],
+    };
+  }
+);
 ```
-
-### Adding a New Resource
-
-1. Create a new directory under [`src/mcp-server/resources/`](src/mcp-server/resources/)
-2. Define types and schemas in a `types.ts` file
-3. Implement the handler in a dedicated file
-4. Create an `index.ts` file that registers the resource
-5. Add your resource to the server registration in [`src/mcp-server/server.ts`](src/mcp-server/server.ts)
 
 ## Future Plans
 
-This template serves as a foundation for:
+This server serves as a foundation for:
 
-- **MCP Client Implementation**: Support for creating MCP clients that connect to various AI models
+- **Subscription Support**: Listen for incoming notifications on specific topics
+- **Web Hook Integration**: Allow callbacks for notification events
+- **Multiple Service Support**: Add support for additional notification services
+- **Enhanced Message Formatting**: Add support for rich text and interactive elements
 
 ## License
 

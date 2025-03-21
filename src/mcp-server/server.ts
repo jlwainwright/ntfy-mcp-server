@@ -13,11 +13,7 @@ import { createRequestContext } from "../utils/requestContext.js";
 import { configureContext, sanitizeInput } from "../utils/security.js";
 
 // Import tool registrations
-import { registerEchoTool } from "./tools/echoTool/index.js";
 import { registerNtfyTool } from "./tools/ntfyTool/index.js";
-
-// Import resource registrations
-import { registerEchoResource } from "./resources/echoResource/index.js";
 
 // Maximum file size for package.json (5MB) to prevent potential DoS
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -157,8 +153,8 @@ export const createMcpServer = async () => {
     registeredTools: new Set(),
     registeredResources: new Set(),
     failedRegistrations: [],
-    requiredTools: new Set(['echo_message', 'send_ntfy']), // Define tools that are required for the server to function properly
-    requiredResources: new Set(['echo-resource']) // Define resources that are required for the server to function properly
+    requiredTools: new Set(['send_ntfy']), // Define tools that are required for the server to function properly
+    requiredResources: new Set([]) // Define resources that are required for the server to function properly
   };
 
   // Create operation context
@@ -408,9 +404,7 @@ export const createMcpServer = async () => {
       
       // Register components with proper error handling
       const registrationPromises: Promise<RegistrationResult>[] = [
-        registerComponent('tool', 'echo_message', () => registerEchoTool(server!)),
         registerComponent('tool', 'send_ntfy', () => registerNtfyTool(server!)),
-        registerComponent('resource', 'echo-resource', () => registerEchoResource(server!)),
       ];
       
       const registrationResults = await Promise.allSettled(registrationPromises);
@@ -474,9 +468,9 @@ export const createMcpServer = async () => {
                   const failedReg = { ...retryable[i] }; // Get a copy to avoid mutation issues
                   
                   try {
-                    if (failedReg.type === 'tool') {
+                    if (failedReg.type === 'tool' && failedReg.name === 'send_ntfy') {
                       // Retry tool registration
-                      await registerEchoTool(server!);
+                      await registerNtfyTool(server!);
                       serverState.registeredTools.add(failedReg.name);
                       
                       // Remove from failed list
@@ -485,17 +479,6 @@ export const createMcpServer = async () => {
                       );
                       
                       serverLogger.info(`Successfully retried registration for tool: ${failedReg.name}`);
-                    } else if (failedReg.type === 'resource') {
-                      // Retry resource registration
-                      await registerEchoResource(server!);
-                      serverState.registeredResources.add(failedReg.name);
-                      
-                      // Remove from failed list
-                      serverState.failedRegistrations = serverState.failedRegistrations.filter(
-                        f => !(f.type === 'resource' && f.name === failedReg.name)
-                      );
-                      
-                      serverLogger.info(`Successfully retried registration for resource: ${failedReg.name}`);
                     }
                   } catch (error) {
                     // Increment retry count
