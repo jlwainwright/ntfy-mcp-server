@@ -1,18 +1,18 @@
-import fs from "fs";
-import path from "path";
-import winston from "winston";
+import fs from 'fs';
+import path from 'path';
+import winston from 'winston';
 import 'winston-daily-rotate-file';
-import { BaseErrorCode, McpError } from "../types-global/errors.js";
+import { BaseErrorCode, McpError } from '../types-global/errors.js';
 
 /**
  * Supported log levels
  */
-export type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 /**
  * Log format types
  */
-export type LogFormat = "json" | "simple" | "detailed";
+export type LogFormat = 'json' | 'simple' | 'detailed';
 
 /**
  * Logger configuration options
@@ -40,7 +40,7 @@ export interface LoggerConfig {
 }
 
 /**
- * Absolute logger error that should cause termination
+ * Logger error that should cause termination
  */
 export class LoggerError extends McpError {
   constructor(message: string, details?: Record<string, unknown>) {
@@ -53,13 +53,13 @@ export class LoggerError extends McpError {
  * Default configuration values
  */
 const DEFAULT_CONFIG: LoggerConfig = {
-  level: "info",
-  logDir: "logs",
-  format: "detailed",
+  level: 'info',
+  logDir: undefined, // Will be set based on env var, no default
+  format: 'detailed',
   files: true,
   rotation: {
     enabled: true,
-    maxSize: "50m",
+    maxSize: '50m',
     maxFiles: 10
   },
   sensitiveFields: [
@@ -76,7 +76,6 @@ export class Logger {
   private static instance: Logger;
   private logger: winston.Logger;
   private config: LoggerConfig;
-  private initialized: boolean = false;
   
   /**
    * Private constructor (use getInstance instead)
@@ -84,23 +83,40 @@ export class Logger {
    */
   private constructor(config: LoggerConfig = {}) {
     // Merge provided config with defaults
-    this.config = {
-      ...DEFAULT_CONFIG,
-      ...config,
+    this.config = this.mergeConfig(DEFAULT_CONFIG, config);
+    
+    // Initialize with a silent logger - no console output
+    this.logger = winston.createLogger({
+      silent: true,
+      transports: []
+    });
+    
+    // Only attempt file logging if LOG_FILE_DIR env var is set
+    if (process.env.LOG_FILE_DIR) {
+      try {
+        this.setupFileLogging();
+      } catch (error) {
+        // Silent fail - no console.log
+      }
+    }
+  }
+
+  /**
+   * Merge configurations with proper handling of nested objects
+   */
+  private mergeConfig(defaultConfig: LoggerConfig, userConfig: LoggerConfig): LoggerConfig {
+    return {
+      ...defaultConfig,
+      ...userConfig,
       rotation: {
-        ...DEFAULT_CONFIG.rotation,
-        ...config.rotation
+        ...defaultConfig.rotation,
+        ...userConfig.rotation
       },
       sensitiveFields: [
-        ...(DEFAULT_CONFIG.sensitiveFields || []),
-        ...(config.sensitiveFields || [])
+        ...(defaultConfig.sensitiveFields || []),
+        ...(userConfig.sensitiveFields || [])
       ]
     };
-    
-    // Initialize with a minimal logger to avoid TypeScript errors
-    this.logger = winston.createLogger({ transports: [] });
-    
-    this.initializeLogger();
   }
 
   /**
@@ -123,117 +139,142 @@ export class Logger {
    * @param config New configuration options
    */
   public configure(config: LoggerConfig): void {
-    // Merge new config with current config
-    this.config = {
-      ...this.config,
-      ...config,
-      rotation: {
-        ...this.config.rotation,
-        ...config.rotation
-      },
-      sensitiveFields: [
-        ...(this.config.sensitiveFields || []),
-        ...(config.sensitiveFields || [])
-      ]
-    };
+    this.config = this.mergeConfig(this.config, config);
     
-    // Reinitialize the logger with new config
-    this.initializeLogger();
+    // Only reconfigure file logging if LOG_FILE_DIR is set
+    if (process.env.LOG_FILE_DIR) {
+      try {
+        this.setupFileLogging();
+      } catch (error) {
+        // Silent fail - no console.log
+      }
+    }
   }
 
   /**
-   * Initialize or reinitialize the Winston logger
+   * Set up file-based logging with proper error handling
    */
-  private initializeLogger(): void {
+  private setupFileLogging(): void {
+    // Only use LOG_FILE_DIR from environment
+    const logDirPath = process.env.LOG_FILE_DIR;
+    
+    if (!logDirPath) {
+      return;
+    }
+    
+    // Create log directory if it doesn't exist
     try {
-      // Ensure log directory exists
-      const logDir = this.config.logDir || DEFAULT_CONFIG.logDir;
-      
-      if (this.config.files && logDir) {
-        // Make sure the log directory exists
-        if (!fs.existsSync(logDir)) {
-          fs.mkdirSync(logDir, { recursive: true });
-        }
+      if (!fs.existsSync(logDirPath)) {
+        fs.mkdirSync(logDirPath, { recursive: true });
       }
-  
-      // Create log format based on configuration
-      const logFormat = this.createLogFormat(this.config.format);
+    } catch (error) {
+      // Silent fail - no console.log
+      return;
+    }
+    
+    // Create log format based on configuration
+    const logFormat = this.createLogFormat(this.config.format);
+    
+    // Create new logger with file transports - no console transport
+    const transports: winston.transport[] = [];
+    
+    if (this.config.rotation?.enabled) {
+      // Use daily rotate file transport if rotation is enabled
+      const dailyRotateOpts = {
+        dirname: logDirPath,
+        datePattern: 'YYYY-MM-DD',
+        maxSize: this.config.rotation.maxSize,
+        maxFiles: this.config.rotation.maxFiles,
+        format: logFormat
+      };
       
-      // Initialize transports array
-      const transports: winston.transport[] = [];
-      
-      // Always ensure logs go to file and not console
-      const absoluteLogDir = path.resolve(logDir || 'logs');
-      
-      // Ensure log directory exists
-      if (!fs.existsSync(absoluteLogDir)) {
-        fs.mkdirSync(absoluteLogDir, { recursive: true });
-      }
-      
-      // Add file transports
-      if (this.config.rotation?.enabled) {
-        // Use winston-daily-rotate-file for log rotation
-        transports.push(new winston.transports.DailyRotateFile({
-          filename: path.join(absoluteLogDir, 'combined-%DATE%.log'),
-          datePattern: 'YYYY-MM-DD',
-          maxSize: this.config.rotation.maxSize,
-          maxFiles: this.config.rotation.maxFiles,
-          format: logFormat
-        }));
+      try {
+        // Combined logs
+        const combinedTransport = new winston.transports.DailyRotateFile({
+          ...dailyRotateOpts,
+          filename: 'combined-%DATE%.log'
+        });
+        transports.push(combinedTransport);
         
         // Error logs
-        transports.push(new winston.transports.DailyRotateFile({
-          filename: path.join(absoluteLogDir, 'error-%DATE%.log'),
-          datePattern: 'YYYY-MM-DD',
-          maxSize: this.config.rotation.maxSize,
-          maxFiles: this.config.rotation.maxFiles,
-          level: 'error',
-          format: logFormat
-        }));
-      } else {
-        // Standard file logging without rotation
-        transports.push(new winston.transports.File({
-          filename: path.join(absoluteLogDir, 'combined.log'),
-          format: logFormat
-        }));
-        
-        transports.push(new winston.transports.File({
-          filename: path.join(absoluteLogDir, 'error.log'),
-          level: 'error',
-          format: logFormat
-        }));
+        const errorTransport = new winston.transports.DailyRotateFile({
+          ...dailyRotateOpts,
+          filename: 'error-%DATE%.log',
+          level: 'error'
+        });
+        transports.push(errorTransport);
+      } catch (error) {
+        // Silent fail - no console.log
       }
-      
-      // Add a silent transport as fallback if something goes wrong
-      transports.push(new winston.transports.Stream({
-        stream: fs.createWriteStream('/dev/null', { flags: 'a' }),
-        silent: true
-      }));
-      
-      // Create logger with ONLY file transports, no console transports
+    } else {
+      // Standard file logging without rotation
+      try {
+        // Combined logs
+        const combinedTransport = new winston.transports.File({
+          filename: path.join(logDirPath, 'combined.log'),
+          format: logFormat
+        });
+        transports.push(combinedTransport);
+        
+        // Error logs
+        const errorTransport = new winston.transports.File({
+          filename: path.join(logDirPath, 'error.log'),
+          level: 'error',
+          format: logFormat
+        });
+        transports.push(errorTransport);
+      } catch (error) {
+        // Silent fail - no console.log
+      }
+    }
+    
+    // If we have transports, create a proper logger
+    if (transports.length > 0) {
       this.logger = winston.createLogger({
         level: this.config.level || DEFAULT_CONFIG.level,
         format: winston.format.combine(
+          winston.format.timestamp(),
           winston.format(this.sanitizeSensitiveData.bind(this))(),
           winston.format.json()
         ),
         defaultMeta: { service: 'mcp-service' },
-        transports, // Only file transports, no Console transport
+        transports,
+        silent: false,
         exitOnError: false
       });
-      
-      this.initialized = true;
-    } catch (error) {
-      // Create a silent logger as fallback - never use console
-      this.logger = winston.createLogger({
-        silent: true,
-        transports: [
-          new winston.transports.Stream({
-            stream: fs.createWriteStream('/dev/null', { flags: 'a' }),
-            silent: true
+    }
+  }
+
+  /**
+   * Create the appropriate log format based on configuration
+   */
+  private createLogFormat(format: LogFormat = 'detailed'): winston.Logform.Format {
+    switch (format) {
+      case 'json':
+        return winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.json()
+        );
+        
+      case 'simple':
+        return winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.printf(({ timestamp, level, message }) => {
+            return `[${timestamp}] ${level}: ${message}`;
           })
-        ]
-      });
+        );
+        
+      case 'detailed':
+      default:
+        return winston.format.combine(
+          winston.format.timestamp(),
+          winston.format.errors({ stack: true }),
+          winston.format.printf(({ timestamp, level, message, context, stack }) => {
+            const contextStr = context ? `\n  Context: ${JSON.stringify(context, null, 2)}` : '';
+            const stackStr = stack ? `\n  Stack: ${stack}` : '';
+            return `[${timestamp}] ${level}: ${message}${contextStr}${stackStr}`;
+          })
+        );
     }
   }
 
@@ -297,97 +338,69 @@ export class Logger {
   }
 
   /**
-   * Create the appropriate log format based on configuration
-   * @param format Format type string
-   * @returns Winston format
+   * Log a debug message - no-op if logger is not configured
    */
-  private createLogFormat(format: LogFormat = "detailed"): winston.Logform.Format {
-    switch (format) {
-      case "json":
-        return winston.format.combine(
-          winston.format.timestamp(),
-          winston.format.json()
-        );
-        
-      case "simple":
-        return winston.format.combine(
-          winston.format.timestamp(),
-          winston.format.printf(({ timestamp, level, message }) => {
-            return `[${timestamp}] ${level}: ${message}`;
-          })
-        );
-        
-      case "detailed":
-      default:
-        return winston.format.combine(
-          winston.format.timestamp(),
-          winston.format.errors({ stack: true }),
-          winston.format.printf(({ timestamp, level, message, context, stack }) => {
-            const contextStr = context ? `\n  Context: ${JSON.stringify(context, null, 2)}` : "";
-            const stackStr = stack ? `\n  Stack: ${stack}` : "";
-            return `[${timestamp}] ${level}: ${message}${contextStr}${stackStr}`;
-          })
-        );
+  public debug(message: string, context?: Record<string, unknown>): void {
+    try {
+      this.logger.debug(message, { context });
+    } catch (error) {
+      // Silent fail
     }
   }
 
   /**
-   * Log a debug message
-   * @param message The message to log
-   * @param context Optional context object
-   */
-  public debug(message: string, context?: Record<string, unknown>): void {
-    this.logger.debug(message, { context });
-  }
-
-  /**
-   * Log an info message
-   * @param message The message to log
-   * @param context Optional context object
+   * Log an info message - no-op if logger is not configured
    */
   public info(message: string, context?: Record<string, unknown>): void {
-    this.logger.info(message, { context });
+    try {
+      this.logger.info(message, { context });
+    } catch (error) {
+      // Silent fail
+    }
   }
 
   /**
-   * Log a warning message
-   * @param message The message to log
-   * @param context Optional context object
+   * Log a warning message - no-op if logger is not configured
    */
   public warn(message: string, context?: Record<string, unknown>): void {
-    this.logger.warn(message, { context });
+    try {
+      this.logger.warn(message, { context });
+    } catch (error) {
+      // Silent fail
+    }
   }
 
   /**
-   * Log an error message
-   * @param message The message to log
-   * @param context Optional context object
+   * Log an error message - no-op if logger is not configured
    */
   public error(message: string, context?: Record<string, unknown>): void {
-    this.logger.error(message, { context });
+    try {
+      this.logger.error(message, { context });
+    } catch (error) {
+      // Silent fail
+    }
   }
 
   /**
-   * Log an exception with full stack trace
-   * @param message The error message
-   * @param error The error object
-   * @param context Additional context
+   * Log an exception with full stack trace - no-op if logger is not configured
    */
   public exception(message: string, error: Error, context?: Record<string, unknown>): void {
-    this.logger.error(message, {
-      context,
-      stack: error.stack,
-      error: {
-        name: error.name,
-        message: error.message
-      }
-    });
+    try {
+      this.logger.error(message, {
+        context,
+        stack: error.stack,
+        error: {
+          name: error.name,
+          message: error.message
+        }
+      });
+    } catch (error) {
+      // Silent fail
+    }
   }
 
   /**
    * Create a child logger with additional default context
-   * @param defaultContext Default context to include with all log messages
-   * @returns A child logger instance
    */
   public createChildLogger(defaultContext: Record<string, unknown>): ChildLogger {
     return new ChildLogger(this, defaultContext);
@@ -397,7 +410,11 @@ export class Logger {
    * Dispose logger resources
    */
   public dispose(): void {
-    this.logger.close();
+    try {
+      this.logger.close();
+    } catch (error) {
+      // Silent fail
+    }
   }
 }
 
@@ -407,8 +424,6 @@ export class Logger {
 export class ChildLogger {
   /**
    * Create a new child logger
-   * @param parent Parent logger
-   * @param defaultContext Default context to include with all log messages
    */
   constructor(
     private parent: Logger,
@@ -417,8 +432,6 @@ export class ChildLogger {
 
   /**
    * Merge provided context with default context
-   * @param context Additional context
-   * @returns Merged context
    */
   private mergeContext(context?: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -427,59 +440,39 @@ export class ChildLogger {
     };
   }
 
-  /**
-   * Log a debug message
-   * @param message The message to log
-   * @param context Additional context
-   */
   public debug(message: string, context?: Record<string, unknown>): void {
     this.parent.debug(message, this.mergeContext(context));
   }
 
-  /**
-   * Log an info message
-   * @param message The message to log
-   * @param context Additional context
-   */
   public info(message: string, context?: Record<string, unknown>): void {
     this.parent.info(message, this.mergeContext(context));
   }
 
-  /**
-   * Log a warning message
-   * @param message The message to log
-   * @param context Additional context
-   */
   public warn(message: string, context?: Record<string, unknown>): void {
     this.parent.warn(message, this.mergeContext(context));
   }
 
-  /**
-   * Log an error message
-   * @param message The message to log
-   * @param context Additional context
-   */
   public error(message: string, context?: Record<string, unknown>): void {
     this.parent.error(message, this.mergeContext(context));
   }
 
-  /**
-   * Log an exception with full stack trace
-   * @param message The error message
-   * @param error The error object
-   * @param context Additional context
-   */
   public exception(message: string, error: Error, context?: Record<string, unknown>): void {
     this.parent.exception(message, error, this.mergeContext(context));
   }
 }
 
-// Create default logger instance
+/**
+ * Create and export the default logger instance - silent unless LOG_FILE_DIR is set
+ */
 export const logger = Logger.getInstance({
-  // Use files only
+  level: (process.env.LOG_LEVEL as LogLevel) || 'info',
   files: true,
-  // Use a relative path in the project directory
-  logDir: "logs"
+  format: 'detailed',
+  rotation: {
+    enabled: true,
+    maxSize: '50m',
+    maxFiles: 10
+  }
 });
 
 export default logger;

@@ -12,8 +12,28 @@ import { logger } from "../utils/logger.js";
 import { createRequestContext } from "../utils/requestContext.js";
 import { configureContext, sanitizeInput } from "../utils/security.js";
 
-// Import tool registrations
+// Import tool and resource registrations
 import { registerNtfyTool } from "./tools/ntfyTool/index.js";
+import { registerNtfyResource } from "./resources/ntfyResource/index.js";
+
+/**
+ * Note on MCP Resource Representations:
+ * 
+ * When registering resources like the ntfy resource, they appear in two forms in MCP:
+ * 
+ * 1. Resource Template - Example: "ntfy://{topic}"
+ *    This is a template showing the URI pattern for accessing resources.
+ *    The template contains placeholders (like {topic}) showing the structure
+ *    of valid URIs. Templates help clients understand how to construct valid
+ *    resource URIs.
+ * 
+ * 2. Concrete Resource Instance - Example: "ntfy://default"
+ *    This is a specific, available resource that follows the template pattern.
+ *    Concrete resources are actual endpoints that can be accessed to retrieve data.
+ *    These are listed to help clients discover available resources.
+ * 
+ * Both representations are necessary for proper MCP resource discovery and usage.
+ */
 
 // Maximum file size for package.json (5MB) to prevent potential DoS
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -61,7 +81,7 @@ const loadPackageInfo = async (): Promise<{ name: string; version: string }> => 
     {
       operation: 'LoadPackageInfo',
       errorCode: BaseErrorCode.VALIDATION_ERROR,
-      rethrow: false,
+      rethrow: true, // Changed to true so errors propagate
       includeStack: true,
       errorMapper: (error) => {
         if (error instanceof SyntaxError) {
@@ -78,13 +98,7 @@ const loadPackageInfo = async (): Promise<{ name: string; version: string }> => 
         );
       }
     }
-  ).catch(() => {
-    // If we can't load package.json, use defaults
-    return {
-      name: "mcp-template-server",
-      version: "1.0.0"
-    };
-  });
+  );
 };
 
 /**
@@ -405,6 +419,7 @@ export const createMcpServer = async () => {
       // Register components with proper error handling
       const registrationPromises: Promise<RegistrationResult>[] = [
         registerComponent('tool', 'send_ntfy', () => registerNtfyTool(server!)),
+        registerComponent('resource', 'ntfy-resource', () => registerNtfyResource(server!)),
       ];
       
       const registrationResults = await Promise.allSettled(registrationPromises);
@@ -479,6 +494,18 @@ export const createMcpServer = async () => {
                       );
                       
                       serverLogger.info(`Successfully retried registration for tool: ${failedReg.name}`);
+                    } 
+                    else if (failedReg.type === 'resource' && failedReg.name === 'ntfy-resource') {
+                      // Retry resource registration
+                      await registerNtfyResource(server!);
+                      serverState.registeredResources.add(failedReg.name);
+                      
+                      // Remove from failed list
+                      serverState.failedRegistrations = serverState.failedRegistrations.filter(
+                        f => !(f.type === 'resource' && f.name === failedReg.name)
+                      );
+                      
+                      serverLogger.info(`Successfully retried registration for resource: ${failedReg.name}`);
                     }
                   } catch (error) {
                     // Increment retry count

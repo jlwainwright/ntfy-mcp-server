@@ -57,8 +57,8 @@ export function createSendNtfyToolSchema() {
   
   // Generate better description text based on current config
   const topicDesc = defaultTopic 
-    ? `The ntfy topic to send the notification to (required). Default topic configured: "${defaultTopic}"`
-    : `The ntfy topic to send the notification to (required). No default topic configured.`;
+    ? `The ntfy topic to send the notification to (required). Default topic configured: "${defaultTopic}". Use ntfy://default resource to identify the configured topic.`
+    : `The ntfy topic to send the notification to (required). No default topic configured. Use ntfy://default resource to check if a topic has been configured.`;
   
   schemaLogger.debug('Schema configuration loaded', {
     hasBaseUrl: !!baseUrl,
