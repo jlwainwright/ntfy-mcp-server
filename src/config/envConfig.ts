@@ -1,9 +1,12 @@
-// Need to have Node.js types available
-
-import { BaseErrorCode, McpError } from '../types-global/errors.js';
-import { ErrorHandler } from '../utils/errorHandler.js';
+/**
+ * Environment configuration module
+ * 
+ * Loads and validates environment variables with proper defaults
+ * and type conversion. Uses a lazy-loading pattern to avoid
+ * loading configuration at import time.
+ */
 import { logger } from '../utils/logger.js';
-import { sanitizeInput } from '../utils/security.js';
+import { parseNumericEnv, parseBooleanEnv, parseStringEnv, validators } from './parsers.js';
 
 // Create a module-level logger for environment configuration
 const envLogger = logger.createChildLogger({
@@ -11,131 +14,52 @@ const envLogger = logger.createChildLogger({
 });
 
 /**
- * Parse a numeric environment variable with validation
- * 
- * @param name - The name of the environment variable
- * @param defaultValue - The default value if not set or invalid
- * @param min - Optional minimum valid value
- * @param max - Optional maximum valid value
- * @returns The parsed numeric value
+ * Environment Configuration Interface
  */
-function parseNumericEnv(
-  name: string, 
-  defaultValue: number, 
-  min?: number, 
-  max?: number
-): number {
-  const rawValue = process.env[name];
+export interface EnvironmentConfig {
+  // Server configuration
+  logLevel: string;
+  environment: string;
   
-  if (rawValue === undefined) {
-    envLogger.debug(`Using default value for ${name}`, { defaultValue });
-    return defaultValue;
-  }
+  // Security settings
+  security: {
+    // Can be extended with security settings in the future
+  };
   
-  try {
-    // Sanitize and parse the value
-    const sanitizedValue = sanitizeInput.string(rawValue);
-    const parsedValue = parseFloat(sanitizedValue);
-    
-    if (isNaN(parsedValue)) {
-      throw new McpError(
-        BaseErrorCode.VALIDATION_ERROR,
-        `Invalid numeric value for ${name}: ${sanitizedValue}`,
-        { raw: sanitizedValue }
-      );
-    }
-    
-    // Apply bounds constraints if provided
-    if (min !== undefined && parsedValue < min) {
-      envLogger.warn(`Value for ${name} is below minimum (${min}), using minimum`, { 
-        parsed: parsedValue, min, raw: sanitizedValue 
-      });
-      return min;
-    }
-    
-    if (max !== undefined && parsedValue > max) {
-      envLogger.warn(`Value for ${name} is above maximum (${max}), using maximum`, { 
-        parsed: parsedValue, max, raw: sanitizedValue 
-      });
-      return max;
-    }
-    
-    envLogger.debug(`Parsed ${name} environment variable`, { value: parsedValue });
-    return parsedValue;
-  } catch (error) {
-    ErrorHandler.handleError(error, {
-      context: { envVar: name, rawValue },
-      operation: `parsing environment variable ${name}`,
-      errorCode: BaseErrorCode.VALIDATION_ERROR
-    });
-    
-    envLogger.warn(`Using default value for ${name} due to parsing error`, { defaultValue });
-    return defaultValue;
-  }
-}
-
-/**
- * Parse a boolean environment variable with validation
- * 
- * @param name - The name of the environment variable
- * @param defaultValue - The default value if not set or invalid
- * @returns The parsed boolean value
- */
-function parseBooleanEnv(name: string, defaultValue: boolean): boolean {
-  const rawValue = process.env[name];
+  // Rate limiting
+  rateLimit: {
+    windowMs: number;
+    maxRequests: number;
+  };
   
-  if (rawValue === undefined) {
-    envLogger.debug(`Using default value for ${name}`, { defaultValue });
-    return defaultValue;
-  }
-  
-  try {
-    // Sanitize the input
-    const sanitizedValue = sanitizeInput.string(rawValue).toLowerCase();
-    
-    // Allow for various truthy/falsy string representations
-    if (['true', 'yes', '1', 'on'].includes(sanitizedValue)) {
-      return true;
-    }
-    
-    if (['false', 'no', '0', 'off'].includes(sanitizedValue)) {
-      return false;
-    }
-    
-    throw new McpError(
-      BaseErrorCode.VALIDATION_ERROR,
-      `Invalid boolean value for ${name}: ${sanitizedValue}`,
-      { raw: sanitizedValue }
-    );
-  } catch (error) {
-    ErrorHandler.handleError(error, {
-      context: { envVar: name, rawValue },
-      operation: `parsing environment variable ${name}`,
-      errorCode: BaseErrorCode.VALIDATION_ERROR
-    });
-    
-    envLogger.warn(`Using default value for ${name} due to parsing error`, { defaultValue });
-    return defaultValue;
-  }
+  // Ntfy configuration
+  ntfy: {
+    apiKey: string;
+    baseUrl: string;
+    defaultTopic: string;
+    requestTimeout: number;
+    maxRetries: number;
+    maxMessageSize: number;
+  };
 }
 
 /**
  * Handles loading and parsing of environment variables for the application
  * with validation and default values.
  */
-function loadEnvConfig() {
+function loadEnvConfig(): EnvironmentConfig {
   // Log the environment we're loading
   envLogger.info(`Loading environment configuration`, {
     nodeEnv: process.env.NODE_ENV || 'development',
     logLevel: process.env.LOG_LEVEL || 'info'
   });
 
-  const config = {
+  const config: EnvironmentConfig = {
     // Server configuration
     logLevel: process.env.LOG_LEVEL || "info",
     environment: process.env.NODE_ENV || "development",
     
-    // Security settings (removed auth-related configuration)
+    // Security settings
     security: {
       // Can be extended with non-auth security settings in the future
     },
@@ -149,8 +73,11 @@ function loadEnvConfig() {
     // Ntfy configuration
     ntfy: {
       apiKey: process.env.NTFY_API_KEY || '',
-      baseUrl: process.env.NTFY_BASE_URL || 'https://ntfy.sh',
-      defaultTopic: process.env.NTFY_TOPIC || ''
+      baseUrl: parseStringEnv('NTFY_BASE_URL', 'https://ntfy.sh', validators.url),
+      defaultTopic: parseStringEnv('NTFY_TOPIC', '', validators.ntfyTopic),
+      requestTimeout: parseNumericEnv('NTFY_REQUEST_TIMEOUT', 5000, 1000, 60000), // 5s default, 1-60s range
+      maxRetries: parseNumericEnv('NTFY_MAX_RETRIES', 3, 0, 10), // 3 retries default, 0-10 range
+      maxMessageSize: parseNumericEnv('NTFY_MAX_MESSAGE_SIZE', 4096, 1, 10000) // 4KB default, 1B-10KB range
     }
   };
 
@@ -166,14 +93,17 @@ function loadEnvConfig() {
   envLogger.info(`Ntfy configuration loaded`, {
     baseUrl: config.ntfy.baseUrl,
     defaultTopic: config.ntfy.defaultTopic ? config.ntfy.defaultTopic : '(not set)',
-    apiKeyPresent: config.ntfy.apiKey ? '✓' : '✗'
+    apiKeyPresent: config.ntfy.apiKey ? '✓' : '✗',
+    requestTimeout: `${config.ntfy.requestTimeout}ms`,
+    maxRetries: config.ntfy.maxRetries,
+    maxMessageSize: `${config.ntfy.maxMessageSize} bytes`
   });
 
   return config;
 }
 
 // Cache the configuration once loaded
-let cachedEnvConfig: ReturnType<typeof loadEnvConfig> | null = null;
+let cachedEnvConfig: EnvironmentConfig | null = null;
 
 /**
  * Get the environment configuration, loading it on first call
@@ -183,16 +113,31 @@ let cachedEnvConfig: ReturnType<typeof loadEnvConfig> | null = null;
  * 
  * @returns The environment configuration
  */
-export const envConfig = () => {
+export const envConfig = (): EnvironmentConfig => {
   if (!cachedEnvConfig) {
     cachedEnvConfig = loadEnvConfig();
   }
   return cachedEnvConfig;
 };
 
-// For direct property access with destructuring
-export const getEnvironment = () => envConfig().environment;
-export const getLogLevel = () => envConfig().logLevel;
+/**
+ * Validates the configuration at startup
+ * Throws an error if any validation fails
+ */
+export const validateConfig = (): boolean => {
+  const config = envConfig();
+  
+  // Add any additional validation logic here
+  // Currently the validation happens during loading,
+  // but this hook is available for more complex validation
+  
+  envLogger.info('Configuration validation passed');
+  return true;
+};
+
+// Helper functions for direct property access
+export const getEnvironment = (): string => envConfig().environment;
+export const getLogLevel = (): string => envConfig().logLevel;
 export const getRateLimit = () => envConfig().rateLimit;
 export const getSecurity = () => envConfig().security;
 export const getNtfyConfig = () => envConfig().ntfy;

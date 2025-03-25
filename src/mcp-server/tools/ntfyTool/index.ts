@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { getNtfyConfig } from "../../../config/envConfig.js";
 import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
 import { ErrorHandler } from "../../../utils/errorHandler.js";
 import { logger } from "../../../utils/logger.js";
@@ -7,12 +8,11 @@ import { sanitizeInputForLogging } from "../../../utils/sanitization.js";
 import { idGenerator } from "../../../utils/idGenerator.js";
 import { registerTool } from "../../utils/registrationHelper.js";
 import { processNtfyMessage } from "./ntfyMessage.js";
-import { createSendNtfyToolSchema, SendNtfyToolInput } from "./types.js";
+import { createSendNtfyToolSchema, SendNtfyToolInput, SendNtfyToolInputSchema } from "./types.js";
 
 // Create module logger
 const moduleLogger = logger.createChildLogger({ 
-  module: 'NtfyToolRegistration',
-  serviceId: idGenerator.generateRandomString(8)
+  module: 'NtfyToolRegistration'
 });
 
 /**
@@ -28,60 +28,53 @@ export const registerNtfyTool = async (server: McpServer): Promise<void> => {
   // Create a request context for tracking this registration operation
   const requestCtx = createRequestContext({
     operation: 'registerNtfyTool',
-    registrationId: idGenerator.generateRandomString(8),
-    timestamp: new Date().toISOString()
+    component: 'NtfyTool'
   });
   
-  moduleLogger.info('Starting ntfy tool registration', {
-    requestId: requestCtx.requestId
-  });
+  moduleLogger.info('Starting ntfy tool registration');
   
   return registerTool(
     server,
     { name: "send_ntfy" },
     async (server, toolLogger) => {
-      // Log with the provided tool logger
-      toolLogger.debug('Creating schema with latest config values');
-      
       // Create a fresh schema with the latest config values
-      const schemaWithLatestConfig = createSendNtfyToolSchema();
+      // This ensures we have the most up-to-date environment variables
+      const schemaWithLatestConfig = SendNtfyToolInputSchema();
       
-      toolLogger.info('Registering ntfy tool handler');
+      // Log default topic info at registration time for verification
+      const ntfyConfig = getNtfyConfig();
+      toolLogger.info('Registering ntfy tool handler with config', {
+        defaultTopic: ntfyConfig.defaultTopic || '(not set)',
+        baseUrl: ntfyConfig.baseUrl,
+        apiKeyPresent: !!ntfyConfig.apiKey
+      });
       
-      // Register the tool directly using the simplified SDK pattern
+      // Register the tool using the simplified SDK pattern
       server.tool(
-        // Tool name
         "send_ntfy", 
-        
-        // Input schema - use the fresh schema to ensure it has the latest config
         schemaWithLatestConfig.shape,
-        
-        // Handler function
         async (params) => {
           // Create request context for tracking this invocation
           const toolRequestCtx = createRequestContext({
             operation: 'handleNtfyTool',
-            toolId: idGenerator.generateRandomString(8),
-            toolName: 'send_ntfy'
+            topic: params?.topic
           });
           
           toolLogger.debug('Received tool invocation', {
             requestId: toolRequestCtx.requestId,
-            hasParams: !!params,
             topic: params?.topic
           });
           
-          // Use ErrorHandler.tryCatch for consistent error handling
+          // Use ErrorHandler for consistent error handling
           return await ErrorHandler.tryCatch(
             async () => {
-              // Pass the typed params to the processor
+              // Process the notification
               const response = await processNtfyMessage(params as SendNtfyToolInput);
               
               toolLogger.info('Successfully processed ntfy message', {
-                requestId: toolRequestCtx.requestId,
-                success: response.success,
                 messageId: response.id,
-                topic: response.topic
+                topic: response.topic,
+                retries: response.retries
               });
               
               // Return in the standard MCP format
@@ -99,40 +92,51 @@ export const registerNtfyTool = async (server: McpServer): Promise<void> => {
                 topic: params?.topic
               },
               input: sanitizeInputForLogging(params),
-              // Provide custom error mapping for better error messages
+              // Map errors appropriately
               errorMapper: (error) => {
-                // Log the error but don't include sensitive details
+                // Log the error
                 toolLogger.error('Error processing ntfy tool request', {
                   error: error instanceof Error ? error.message : 'Unknown error',
                   errorType: error instanceof Error ? error.name : 'Unknown',
-                  requestId: toolRequestCtx.requestId,
-                  // Include a safe subset of params for debugging
-                  hasTopic: !!params?.topic,
-                  hasTitle: !!params?.title
+                  topic: params?.topic
                 });
                 
-                // Determine appropriate error code
-                let errorCode = BaseErrorCode.INTERNAL_ERROR;
-                
+                // Pass through McpErrors, map others properly
                 if (error instanceof McpError) {
-                  errorCode = error.code;
-                } else if (error instanceof Error) {
-                  // Try to classify the error
+                  return error;
+                }
+                
+                // Try to classify unknown errors
+                if (error instanceof Error) {
                   const errorMsg = error.message.toLowerCase();
+                  
                   if (errorMsg.includes('validation') || errorMsg.includes('invalid')) {
-                    errorCode = BaseErrorCode.VALIDATION_ERROR;
+                    return new McpError(
+                      BaseErrorCode.VALIDATION_ERROR,
+                      `Validation error: ${error.message}`
+                    );
                   } else if (errorMsg.includes('not found') || errorMsg.includes('missing')) {
-                    errorCode = BaseErrorCode.NOT_FOUND;
+                    return new McpError(
+                      BaseErrorCode.NOT_FOUND,
+                      `Resource not found: ${error.message}`
+                    );
                   } else if (errorMsg.includes('timeout')) {
-                    errorCode = BaseErrorCode.TIMEOUT;
-                  } else if (errorMsg.includes('service') || errorMsg.includes('server')) {
-                    errorCode = BaseErrorCode.SERVICE_UNAVAILABLE;
+                    return new McpError(
+                      BaseErrorCode.TIMEOUT,
+                      `Request timed out: ${error.message}`
+                    );
+                  } else if (errorMsg.includes('rate limit')) {
+                    return new McpError(
+                      BaseErrorCode.RATE_LIMITED,
+                      `Rate limit exceeded: ${error.message}`
+                    );
                   }
                 }
                 
+                // Default to service unavailable for network/connection issues
                 return new McpError(
-                  errorCode,
-                  `Error sending ntfy notification: ${error instanceof Error ? error.message : 'Unknown error'}`
+                  BaseErrorCode.SERVICE_UNAVAILABLE,
+                  `Failed to send notification: ${error instanceof Error ? error.message : 'Unknown error'}`
                 );
               }
             }
@@ -142,13 +146,5 @@ export const registerNtfyTool = async (server: McpServer): Promise<void> => {
       
       toolLogger.info("Ntfy tool handler registered successfully");
     }
-  ).catch(error => {
-    // Handle registration errors
-    moduleLogger.error('Failed to register ntfy tool', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      errorType: error instanceof Error ? error.name : 'Unknown',
-      requestId: requestCtx.requestId
-    });
-    throw error;
-  });
+  );
 };

@@ -1,3 +1,9 @@
+/**
+ * MCP Servers Configuration Module
+ * 
+ * This module handles loading, validating, and managing MCP server configurations
+ * from an external JSON file.
+ */
 import { promises as fs } from 'fs';
 import path from 'path';
 import { BaseErrorCode, McpError } from '../types-global/errors.js';
@@ -226,11 +232,8 @@ export async function getEnabledServers(config: McpServersConfig): Promise<Recor
     const allServerCount = Object.keys(config.mcpServers).length;
     configLogger.info(`Filtering enabled MCP servers from ${allServerCount} configurations`);
     
-    // Create an array of server entries
-    const entries = Object.entries(config.mcpServers);
-    
     // Process each server configuration
-    for (const [name, serverConfig] of entries) {
+    for (const [name, serverConfig] of Object.entries(config.mcpServers)) {
       // Sanitize server name 
       const safeName = sanitizeInput.string(name);
       
@@ -268,9 +271,6 @@ export async function getEnabledServers(config: McpServersConfig): Promise<Recor
     return {};
   }
 }
-
-// DO NOT LOAD CONFIG AT IMPORT TIME
-// Instead, provide functions that load config on demand
 
 // Cached configuration to avoid loading multiple times
 let cachedConfig: McpServersConfig | null = null;

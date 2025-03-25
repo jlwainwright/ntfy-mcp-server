@@ -162,51 +162,55 @@ export class Logger {
       // Initialize transports array
       const transports: winston.transport[] = [];
       
-      // Add file transports if enabled
-      if (this.config.files && logDir) {
-        if (this.config.rotation?.enabled) {
-          // Use winston-daily-rotate-file for log rotation
-          transports.push(new winston.transports.DailyRotateFile({
-            filename: path.join(logDir, 'combined-%DATE%.log'),
-            datePattern: 'YYYY-MM-DD',
-            maxSize: this.config.rotation.maxSize,
-            maxFiles: this.config.rotation.maxFiles,
-            format: logFormat
-          }));
-          
-          // Error logs
-          transports.push(new winston.transports.DailyRotateFile({
-            filename: path.join(logDir, 'error-%DATE%.log'),
-            datePattern: 'YYYY-MM-DD',
-            maxSize: this.config.rotation.maxSize,
-            maxFiles: this.config.rotation.maxFiles,
-            level: 'error',
-            format: logFormat
-          }));
-        } else {
-          // Standard file logging without rotation
-          transports.push(new winston.transports.File({
-            filename: path.join(logDir, 'combined.log'),
-            format: logFormat
-          }));
-          
-          transports.push(new winston.transports.File({
-            filename: path.join(logDir, 'error.log'),
-            level: 'error',
-            format: logFormat
-          }));
-        }
+      // Always ensure logs go to file and not console
+      const absoluteLogDir = path.resolve(logDir || 'logs');
+      
+      // Ensure log directory exists
+      if (!fs.existsSync(absoluteLogDir)) {
+        fs.mkdirSync(absoluteLogDir, { recursive: true });
       }
-  
-      // Create the Winston logger with a silent transport as fallback
-      // if no other transports are available
-      if (transports.length === 0) {
-        transports.push(new winston.transports.Stream({
-          stream: fs.createWriteStream('/dev/null', { flags: 'a' }),
-          silent: true
+      
+      // Add file transports
+      if (this.config.rotation?.enabled) {
+        // Use winston-daily-rotate-file for log rotation
+        transports.push(new winston.transports.DailyRotateFile({
+          filename: path.join(absoluteLogDir, 'combined-%DATE%.log'),
+          datePattern: 'YYYY-MM-DD',
+          maxSize: this.config.rotation.maxSize,
+          maxFiles: this.config.rotation.maxFiles,
+          format: logFormat
+        }));
+        
+        // Error logs
+        transports.push(new winston.transports.DailyRotateFile({
+          filename: path.join(absoluteLogDir, 'error-%DATE%.log'),
+          datePattern: 'YYYY-MM-DD',
+          maxSize: this.config.rotation.maxSize,
+          maxFiles: this.config.rotation.maxFiles,
+          level: 'error',
+          format: logFormat
+        }));
+      } else {
+        // Standard file logging without rotation
+        transports.push(new winston.transports.File({
+          filename: path.join(absoluteLogDir, 'combined.log'),
+          format: logFormat
+        }));
+        
+        transports.push(new winston.transports.File({
+          filename: path.join(absoluteLogDir, 'error.log'),
+          level: 'error',
+          format: logFormat
         }));
       }
       
+      // Add a silent transport as fallback if something goes wrong
+      transports.push(new winston.transports.Stream({
+        stream: fs.createWriteStream('/dev/null', { flags: 'a' }),
+        silent: true
+      }));
+      
+      // Create logger with ONLY file transports, no console transports
       this.logger = winston.createLogger({
         level: this.config.level || DEFAULT_CONFIG.level,
         format: winston.format.combine(
@@ -214,7 +218,8 @@ export class Logger {
           winston.format.json()
         ),
         defaultMeta: { service: 'mcp-service' },
-        transports
+        transports, // Only file transports, no Console transport
+        exitOnError: false
       });
       
       this.initialized = true;

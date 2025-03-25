@@ -1,25 +1,66 @@
+/**
+ * Configuration Index Module
+ * 
+ * This module serves as the central entrypoint for all configuration-related
+ * functionality. It provides a unified API for accessing configuration values
+ * from various sources (environment variables, package.json, MCP servers config).
+ */
 import { promises as fs } from "fs";
 import path from "path";
 import { BaseErrorCode, McpError } from "../types-global/errors.js";
 import { ErrorHandler } from "../utils/errorHandler.js";
 import { logger } from "../utils/logger.js";
 import { sanitizeInput } from "../utils/security.js";
-import { envConfig } from './envConfig.js';
-import { enabledMcpServers, McpServerConfig, McpServersConfig } from './mcpConfig.js';
+import { envConfig, EnvironmentConfig, getEnvironment, getLogLevel, getNtfyConfig, getRateLimit, getSecurity } from './envConfig.js';
+import { enabledMcpServers, getEnabledServers, getMcpConfig, isServerEnabled, loadMcpConfig, McpServerConfig, McpServersConfig } from './mcpConfig.js';
 
 // Create a module-level logger for configuration
 const configLogger = logger.createChildLogger({
-  module: 'ConfigLoader'
+  module: 'ConfigManager'
 });
 
 // Default package info in case we can't load it
 const DEFAULT_PACKAGE_INFO = {
-  name: "mcp-template-server",
+  name: "ntfy-mcp-server",
   version: "0.0.0"
 };
 
 // Maximum file size for package.json (5MB) to prevent potential DoS
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+/**
+ * Unified application configuration interface
+ */
+export interface AppConfig {
+  // Server info
+  serverName: string;
+  serverVersion: string;
+  
+  // Environment configuration 
+  environment: string;
+  logLevel: string;
+  rateLimit: {
+    windowMs: number;
+    maxRequests: number;
+  };
+  security: Record<string, any>;
+  
+  // Ntfy configuration
+  ntfy: {
+    apiKey: string;
+    baseUrl: string;
+    defaultTopic: string;
+    requestTimeout: number;
+    maxRetries: number;
+    maxMessageSize: number;
+  };
+  
+  // MCP servers configuration
+  mcpServers: Record<string, McpServerConfig>;
+  
+  // Metadata
+  configLoadTime: string;
+}
 
 /**
  * Load and parse the package.json file to get application information
@@ -78,15 +119,10 @@ async function loadPackageInfo(): Promise<{ name: string; version: string }> {
     };
   } catch (error) {
     // Log the error but don't rethrow
-    try {
-      ErrorHandler.handleError(error, {
-        context: { path: path.resolve(process.cwd(), 'package.json') },
-        operation: "loading package info"
-      });
-    } catch (handlerError) {
-      // This shouldn't happen, but just in case
-      configLogger.error("Error in error handler", { error: handlerError });
-    }
+    ErrorHandler.handleError(error, {
+      context: { path: path.resolve(process.cwd(), 'package.json') },
+      operation: "loading package info"
+    });
     
     configLogger.error(`Failed to load package.json, using default values`, {
       error: error instanceof Error ? error.message : String(error)
@@ -103,7 +139,7 @@ let cachedPackageInfo: { name: string; version: string } | null = null;
 /**
  * Get package info, loading it on first call
  */
-async function getPackageInfo(): Promise<{ name: string; version: string }> {
+export async function getPackageInfo(): Promise<{ name: string; version: string }> {
   if (!cachedPackageInfo) {
     cachedPackageInfo = await loadPackageInfo();
   }
@@ -111,16 +147,16 @@ async function getPackageInfo(): Promise<{ name: string; version: string }> {
 }
 
 /**
- * Build the configuration info object with all loaded config combined
+ * Build the full application configuration object
  * 
  * This function lazy-loads all configuration components when called.
  */
-async function buildConfigInfo() {
+async function buildAppConfig(): Promise<AppConfig> {
   const packageInfo = await getPackageInfo();
   const env = envConfig();
   const servers = await enabledMcpServers();
   
-  configLogger.info(`Building combined configuration object`, {
+  configLogger.info(`Building unified application configuration`, {
     environment: env.environment,
     packageName: packageInfo.name,
     mcpServerCount: Object.keys(servers).length
@@ -128,39 +164,55 @@ async function buildConfigInfo() {
   
   return {
     // Server info
-    mcpServerName: packageInfo.name,
-    mcpServerVersion: packageInfo.version,
+    serverName: packageInfo.name,
+    serverVersion: packageInfo.version,
     
     // Environment configuration
-    ...env,
-
+    environment: env.environment,
+    logLevel: env.logLevel,
+    rateLimit: env.rateLimit,
+    security: env.security,
+    
+    // Ntfy configuration
+    ntfy: env.ntfy,
+    
     // MCP servers configuration
     mcpServers: servers,
     
-    // Debug info
+    // Metadata
     configLoadTime: new Date().toISOString()
   };
 }
 
 // Cache for config
-let cachedConfig: Awaited<ReturnType<typeof buildConfigInfo>> | null = null;
+let cachedAppConfig: AppConfig | null = null;
 
-// Export lazy-loading config function
-export async function config() {
-  if (!cachedConfig) {
-    cachedConfig = await buildConfigInfo();
+/**
+ * Get the complete application configuration
+ * 
+ * @returns Promise resolving to the full application configuration
+ */
+export async function getConfig(): Promise<AppConfig> {
+  if (!cachedAppConfig) {
+    cachedAppConfig = await buildAppConfig();
     
     // Log configuration summary
     configLogger.info(`Configuration loaded successfully`, {
-      serverName: cachedConfig.mcpServerName,
-      version: cachedConfig.mcpServerVersion,
-      environment: cachedConfig.environment,
-      enabledServers: Object.keys(cachedConfig.mcpServers)
+      serverName: cachedAppConfig.serverName,
+      version: cachedAppConfig.serverVersion,
+      environment: cachedAppConfig.environment,
+      enabledServers: Object.keys(cachedAppConfig.mcpServers)
     });
   }
-  return cachedConfig;
+  return cachedAppConfig;
 }
 
-// Export types and utilities
-export { enabledMcpServers, getEnabledServers, getMcpConfig, isServerEnabled, loadMcpConfig } from './mcpConfig.js';
-export type { McpServerConfig, McpServersConfig };
+// Export types and functions from the sub-modules
+export type { EnvironmentConfig, McpServerConfig, McpServersConfig };
+export { 
+  // Environment config
+  envConfig, getEnvironment, getLogLevel, getRateLimit, getSecurity, getNtfyConfig,
+  
+  // MCP servers config
+  enabledMcpServers, getEnabledServers, getMcpConfig, isServerEnabled, loadMcpConfig
+};

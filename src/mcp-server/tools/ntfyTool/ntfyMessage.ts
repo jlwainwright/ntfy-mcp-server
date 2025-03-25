@@ -1,12 +1,13 @@
 import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
 import { ErrorHandler } from "../../../utils/errorHandler.js";
 import { publish, NtfyPublishOptions, NtfyPriority, validateTopicSync } from "../../../services/ntfy/index.js";
-import { getNtfyConfig } from "../../../config/envConfig.js";
-import { SendNtfyToolInput, SendNtfyToolResponse } from "./types.js";
+import { getNtfyConfig, getRateLimit } from "../../../config/envConfig.js";
+import { SendNtfyToolInput, SendNtfyToolResponse, createSendNtfyToolSchema } from "./types.js";
 import { logger } from "../../../utils/logger.js";
 import { createRequestContext } from "../../../utils/requestContext.js";
 import { sanitizeInput, sanitizeInputForLogging } from "../../../utils/sanitization.js";
 import { idGenerator } from "../../../utils/idGenerator.js";
+import { RateLimiter } from "../../../utils/rateLimiter.js";
 
 // Create a module-specific logger
 const ntfyToolLogger = logger.createChildLogger({ 
@@ -14,8 +15,43 @@ const ntfyToolLogger = logger.createChildLogger({
   serviceId: idGenerator.generateRandomString(8)
 });
 
+// Create rate limiters for global and per-topic usage
+const rateLimit = getRateLimit();
+const globalRateLimiter = new RateLimiter({
+  windowMs: rateLimit.windowMs,
+  maxRequests: rateLimit.maxRequests,
+  errorMessage: 'Global rate limit exceeded for ntfy notifications. Please try again in {waitTime} seconds.',
+});
+
+// Map to cache per-topic rate limiters
+const topicRateLimiters = new Map<string, RateLimiter>();
+
+/**
+ * Gets or creates a rate limiter for a specific topic
+ * 
+ * @param topic - The ntfy topic
+ * @returns Rate limiter instance for the topic
+ */
+function getTopicRateLimiter(topic: string): RateLimiter {
+  const normalizedTopic = topic.toLowerCase().trim();
+  
+  if (!topicRateLimiters.has(normalizedTopic)) {
+    // Make per-topic limit more restrictive than global
+    const perTopicLimit = Math.min(50, Math.floor(rateLimit.maxRequests / 2));
+    
+    topicRateLimiters.set(normalizedTopic, new RateLimiter({
+      windowMs: rateLimit.windowMs,
+      maxRequests: perTopicLimit,
+      errorMessage: `Rate limit exceeded for topic '${normalizedTopic}'. Please try again in {waitTime} seconds.`,
+    }));
+  }
+  
+  return topicRateLimiters.get(normalizedTopic)!;
+}
+
 /**
  * Process and send a notification via ntfy
+ * Includes rate limiting, message validation, and retry logic
  * 
  * @param params - Parameters for the ntfy message
  * @returns Response with notification details
@@ -49,10 +85,18 @@ export const processNtfyMessage = async (
       // Get the ntfy config
       const ntfyConfig = getNtfyConfig();
       
-      // Use default topic from env if not provided and default exists
+      // Use default topic from env if not provided
       const finalTopic = topic || ntfyConfig.defaultTopic;
       
-      // Validate topic
+      // Log the topic resolution (more visible INFO level)
+      ntfyToolLogger.info('Topic resolution', {
+        providedTopic: topic || '(not provided)',
+        defaultTopic: ntfyConfig.defaultTopic || '(not configured)',
+        finalTopic: finalTopic || '(none)',
+        requestId: requestCtx.requestId
+      });
+      
+      // Validate topic is present
       if (!finalTopic) {
         ntfyToolLogger.error('Topic validation failed - missing topic', {
           requestId: requestCtx.requestId
@@ -75,14 +119,51 @@ export const processNtfyMessage = async (
         );
       }
       
-      // Build publish options with sanitized inputs
+      // Apply rate limiting (both global and per-topic)
+      try {
+        // Check global rate limit first
+        globalRateLimiter.check('global');
+        
+        // Then check per-topic rate limit
+        getTopicRateLimiter(finalTopic).check(finalTopic);
+      } catch (error) {
+        if (error instanceof McpError && error.code === BaseErrorCode.RATE_LIMITED) {
+          ntfyToolLogger.warn('Rate limit exceeded', {
+            requestId: requestCtx.requestId,
+            topic: finalTopic,
+            error: error.message
+          });
+        }
+        // Always throw rate limit errors
+        throw error;
+      }
+      
+      // Message size validation
+      const messageSize = Buffer.byteLength(message, 'utf8');
+      const maxSize = ntfyConfig.maxMessageSize || 4096;
+      if (messageSize > maxSize) {
+        ntfyToolLogger.error('Message size validation failed', {
+          messageSize,
+          maxSize,
+          requestId: requestCtx.requestId
+        });
+        throw new McpError(
+          BaseErrorCode.VALIDATION_ERROR,
+          `Message size (${messageSize} bytes) exceeds maximum allowed size (${maxSize} bytes)`
+        );
+      }
+      
+      // Prepare sanitized publish options
       const publishOptions: NtfyPublishOptions = {
-        // Pass through all relevant parameters with sanitization
+        // Message metadata
         title: options.title ? sanitizeInput.string(options.title) : undefined,
-        tags: options.tags ? options.tags.map(tag => sanitizeInput.string(tag)) : undefined,
+        tags: options.tags?.map(tag => sanitizeInput.string(tag)),
         priority: options.priority as NtfyPriority | undefined,
+        markdown: options.markdown,
+        
+        // Interactive elements
         click: options.click ? sanitizeInput.url(options.click) : undefined,
-        actions: options.actions ? options.actions.map(action => ({
+        actions: options.actions?.map(action => ({
           id: sanitizeInput.string(action.id),
           label: sanitizeInput.string(action.label),
           action: sanitizeInput.string(action.action),
@@ -91,23 +172,25 @@ export const processNtfyMessage = async (
           headers: action.headers,
           body: action.body ? sanitizeInput.string(action.body) : undefined,
           clear: action.clear
-        })) : undefined,
-        attachment: options.attachment ? {
+        })),
+        
+        // Media and attachments
+        attachment: options.attachment && {
           url: sanitizeInput.url(options.attachment.url),
-          // Ensure name is a string if attachment exists but name is undefined
           name: options.attachment.name 
             ? sanitizeInput.string(options.attachment.name) 
             : sanitizeInput.string(options.attachment.url.split('/').pop() || 'attachment')
-        } : undefined,
+        },
+        
+        // Delivery options
         email: options.email ? sanitizeInput.string(options.email) : undefined,
         delay: options.delay ? sanitizeInput.string(options.delay) : undefined,
         cache: options.cache ? sanitizeInput.string(options.cache) : undefined,
         firebase: options.firebase ? sanitizeInput.string(options.firebase) : undefined,
-        id: options.id ? sanitizeInput.string(options.id) : undefined,
         expires: options.expires ? sanitizeInput.string(options.expires) : undefined,
-        markdown: options.markdown,
+        id: options.id ? sanitizeInput.string(options.id) : undefined,
         
-        // Server options
+        // Server configuration
         baseUrl: options.baseUrl ? sanitizeInput.url(options.baseUrl) : ntfyConfig.baseUrl,
       };
       
@@ -116,49 +199,105 @@ export const processNtfyMessage = async (
         hasTitle: !!publishOptions.title,
         hasTags: !!publishOptions.tags && publishOptions.tags.length > 0,
         baseUrl: publishOptions.baseUrl,
+        messageSize,
         requestId: requestCtx.requestId
       });
       
-      // Authentication handling
-      if (options.auth) {
-        publishOptions.auth = sanitizeInput.string(options.auth);
-      } else if (options.username && options.password) {
-        publishOptions.username = sanitizeInput.string(options.username);
-        publishOptions.password = options.password; // Password is handled securely by the ntfy service
-      } else {
-        // Handle useApiKey
-        // Default: true if API key exists, otherwise false
-        const shouldUseApiKey = options.useApiKey !== undefined 
-          ? options.useApiKey 
-          : !!ntfyConfig.apiKey; // Default to true if API key exists
-          
-        if (shouldUseApiKey && ntfyConfig.apiKey) {
-          // If useApiKey is true and we have an API key configured, use it
-          publishOptions.auth = ntfyConfig.apiKey;
-        }
+      // Set authentication if API key is available
+      if (ntfyConfig.apiKey) {
+        publishOptions.auth = ntfyConfig.apiKey;
       }
       
       ntfyToolLogger.debug('Authentication configured', {
         hasAuth: !!publishOptions.auth,
-        hasBasicAuth: !!(publishOptions.username && publishOptions.password),
-        useApiKey: options.useApiKey,
+        apiKeyAvailable: !!ntfyConfig.apiKey,
         requestId: requestCtx.requestId
       });
       
-      // Send the notification
-      ntfyToolLogger.info('Sending notification', {
+      ntfyToolLogger.debug('Publishing with options', {
         topic: finalTopic,
-        messageLength: message?.length,
+        messageSize,
+        hasAuth: !!publishOptions.auth,
+        hasTitle: !!publishOptions.title,
+        hasTags: !!publishOptions.tags,
         requestId: requestCtx.requestId
       });
       
-      const result = await publish(finalTopic, message, publishOptions);
+      // Send with retry logic
+      const maxRetries = ntfyConfig.maxRetries || 3;
+      let retries = 0;
+      let result;
       
-      ntfyToolLogger.info('Notification sent successfully', {
-        messageId: result.id,
-        topic: result.topic,
-        requestId: requestCtx.requestId
-      });
+      for (retries = 0; retries <= maxRetries; retries++) {
+        try {
+          // Apply exponential backoff for retries
+          if (retries > 0) {
+            const backoffMs = Math.min(100 * Math.pow(2, retries), 2000);
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+            
+            ntfyToolLogger.info(`Retry attempt ${retries}/${maxRetries}`, {
+              topic: finalTopic,
+              requestId: requestCtx.requestId
+            });
+          }
+          
+          ntfyToolLogger.info(`Sending notification${retries > 0 ? ' (retry)' : ''}`, {
+            topic: finalTopic,
+            messageLength: messageSize,
+            retry: retries,
+            requestId: requestCtx.requestId
+          });
+          
+          // Publish the message
+          result = await publish(finalTopic, message, publishOptions);
+          
+          ntfyToolLogger.info('Notification sent successfully', {
+            messageId: result.id,
+            topic: result.topic,
+            retries,
+            requestId: requestCtx.requestId
+          });
+          
+          // Success - exit retry loop
+          break;
+          
+        } catch (error) {
+          // Determine if error is retriable
+          const errorMsg = error instanceof Error ? error.message.toLowerCase() : '';
+          const isNetworkError = 
+            errorMsg.includes('network') || 
+            errorMsg.includes('timeout') || 
+            errorMsg.includes('connection') ||
+            errorMsg.includes('econnrefused') || 
+            errorMsg.includes('econnreset');
+          
+          if (!isNetworkError || retries >= maxRetries) {
+            ntfyToolLogger.error('Failed to send notification, giving up', {
+              topic: finalTopic,
+              error: error instanceof Error ? error.message : String(error),
+              retries,
+              requestId: requestCtx.requestId
+            });
+            throw error;
+          }
+          
+          ntfyToolLogger.warn('Notification failed, will retry', {
+            topic: finalTopic,
+            error: error instanceof Error ? error.message : String(error),
+            retryCount: retries,
+            nextRetry: retries + 1,
+            requestId: requestCtx.requestId
+          });
+        }
+      }
+      
+      // Verify we have a result
+      if (!result) {
+        throw new McpError(
+          BaseErrorCode.SERVICE_UNAVAILABLE,
+          `Failed to send notification after ${maxRetries} retries`
+        );
+      }
       
       // Return the response
       return {
@@ -170,6 +309,7 @@ export const processNtfyMessage = async (
         message: message,
         title: options.title,
         url: options.click,
+        retries: retries > 0 ? retries : undefined
       };
     },
     {
@@ -184,6 +324,33 @@ export const processNtfyMessage = async (
         if (error instanceof McpError) {
           return error;
         }
+        
+        // Map common errors to more specific error codes
+        if (error instanceof Error) {
+          const errorMsg = error.message.toLowerCase();
+          
+          if (errorMsg.includes('rate limit') || errorMsg.includes('too many requests')) {
+            return new McpError(
+              BaseErrorCode.RATE_LIMITED,
+              `Rate limit exceeded: ${error.message}`
+            );
+          }
+          
+          if (errorMsg.includes('timeout')) {
+            return new McpError(
+              BaseErrorCode.TIMEOUT,
+              `Request timed out: ${error.message}`
+            );
+          }
+          
+          if (errorMsg.includes('validation') || errorMsg.includes('invalid')) {
+            return new McpError(
+              BaseErrorCode.VALIDATION_ERROR,
+              `Validation error: ${error.message}`
+            );
+          }
+        }
+        
         return new McpError(
           BaseErrorCode.SERVICE_UNAVAILABLE,
           `Failed to send ntfy notification: ${error instanceof Error ? error.message : 'Unknown error'}`
