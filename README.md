@@ -263,6 +263,20 @@ Sends a notification message via the ntfy service.
 }
 ```
 
+#### Example Response:
+
+```json
+{
+  "success": true,
+  "id": "5ZFY362156Sa",
+  "topic": "ATLAS",
+  "time": 1743064235,
+  "expires": 1743496235,
+  "message": "This is a test message from the README verification process",
+  "title": "README Testing"
+}
+```
+
 ## Resources
 
 ### Direct Resources
@@ -272,6 +286,15 @@ Sends a notification message via the ntfy service.
 - **Description:** Returns the default ntfy topic configured in the server's environment variables (`NTFY_DEFAULT_TOPIC`).
 - **Usage:** Useful for clients to discover the primary topic without needing prior configuration.
 - **Example:** An LLM agent can access this resource to automatically use the default topic when sending notifications.
+- **Example Response:**
+  ```json
+  {
+    "defaultTopic": "ATLAS",
+    "timestamp": "2025-03-27T08:30:25.619Z",
+    "requestUri": "ntfy://default",
+    "requestId": "0da963d0-30e0-4dbc-bb77-4bf2dee14484"
+  }
+  ```
 
 ### Resource Templates
 
@@ -280,6 +303,15 @@ Sends a notification message via the ntfy service.
 - **Description:** Returns information about a specific ntfy topic.
 - **Parameters:** `topic` - The name of the ntfy topic.
 - **Usage:** For querying information about topics other than the default.
+- **Example Response:**
+  ```json
+  {
+    "topic": "ATLAS",
+    "timestamp": "2025-03-27T08:30:30.038Z",
+    "requestUri": "ntfy://ATLAS",
+    "requestId": "31baf1df-278f-4fdb-860d-019f156a72b0"
+  }
+  ```
 
 ## Use Cases
 
