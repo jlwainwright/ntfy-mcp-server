@@ -2,18 +2,20 @@ import { z } from "zod";
 import { McpContent, McpToolResponse } from "./mcp.js";
 
 // Base error codes that all tools can use
-export enum BaseErrorCode {
-  UNAUTHORIZED = 'UNAUTHORIZED',
-  FORBIDDEN = 'FORBIDDEN',
-  NOT_FOUND = 'NOT_FOUND',
-  CONFLICT = 'CONFLICT',
-  VALIDATION_ERROR = 'VALIDATION_ERROR',
-  RATE_LIMITED = 'RATE_LIMITED',
-  TIMEOUT = 'TIMEOUT',
-  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
-  INTERNAL_ERROR = 'INTERNAL_ERROR',
-  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
-}
+export const BaseErrorCode = {
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  NOT_FOUND: 'NOT_FOUND',
+  CONFLICT: 'CONFLICT',
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  RATE_LIMITED: 'RATE_LIMITED',
+  TIMEOUT: 'TIMEOUT',
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  UNKNOWN_ERROR: 'UNKNOWN_ERROR'
+} as const;
+
+export type BaseErrorCode = typeof BaseErrorCode[keyof typeof BaseErrorCode];
 
 // Base MCP error class
 export class McpError extends Error {

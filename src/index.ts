@@ -1,85 +1,121 @@
 #!/usr/bin/env node
-
 /**
- * ntfy-mcp-server - Main entry point
+ * Ntfy MCP Server - Main Entry Point
  * 
- * This file initializes the MCP server and sets up signal handlers
- * for graceful shutdown.
+ * This is the main entry point for the Ntfy MCP server. It initializes the 
+ * server, sets up signal handlers for graceful shutdown, and manages the
+ * application lifecycle.
  */
-
-// Import dependencies
+import { config } from "./config/index.js";
 import { createMcpServer } from "./mcp-server/server.js";
 import { logger } from "./utils/logger.js";
+import { createRequestContext } from "./utils/requestContext.js";
 
-// Track the server instance
-let server: Awaited<ReturnType<typeof createMcpServer>> | undefined;
+// Create main application logger
+const appLogger = logger.createChildLogger({
+  module: 'NtfyMcpServer',
+  service: 'NtfyMcpServer',
+  component: 'Main',
+  environment: config.environment
+});
 
 /**
- * Gracefully shut down the server
+ * Graceful shutdown handler
+ * @param signal The signal that triggered the shutdown
  */
 const shutdown = async (signal: string): Promise<void> => {
+  appLogger.info(`Shutting down due to ${signal} signal...`);
+  
   try {
-    // Close the MCP server
-    if (server) {
-      logger.info(`Closing MCP server due to ${signal} signal...`);
-      await server.close();
-      logger.info("MCP server closed successfully");
+    if (mcpServer) {
+      appLogger.info('Closing MCP server...');
+      await mcpServer.close();
+      appLogger.info('MCP server closed successfully');
     }
-
-    logger.info("Graceful shutdown completed");
+    
+    appLogger.info('Shutdown complete. Exiting process.');
     process.exit(0);
   } catch (error) {
-    // Handle any errors during shutdown silently (no console output)
-    logger.error("Critical error during shutdown", { 
+    appLogger.error('Error during shutdown', {
       error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+      signal
     });
     process.exit(1);
   }
 };
 
+// Variable to hold server instance
+let mcpServer: Awaited<ReturnType<typeof createMcpServer>> | undefined;
+
 /**
- * Start the NTFY MCP server
+ * Main startup function
  */
 const start = async (): Promise<void> => {
+  // Create startup context
+  const startupContext = createRequestContext({
+    operation: "ServerStartup",
+    appName: "ntfy-mcp-server",
+    environment: config.environment,
+  });
+
+  appLogger.info("Starting ntfy-mcp-server...", {
+    environment: config.environment,
+    logLevel: config.logLevel,
+    requestId: startupContext.requestId
+  });
+
   try {
-    // Create and store server instance
-    server = await createMcpServer();
+    // Validate ntfy configuration
+    const ntfyConfig = config.ntfy;
     
-    // Handle process signals for graceful shutdown
+    if (!ntfyConfig.baseUrl) {
+      appLogger.warn("Ntfy base URL not configured. Using default https://ntfy.sh");
+    }
+    
+    if (!ntfyConfig.defaultTopic) {
+      appLogger.warn("No default ntfy topic configured. Some functionality may be limited.");
+    }
+    
+    // Create main MCP server
+    appLogger.info("Creating MCP server...");
+    mcpServer = await createMcpServer();
+    appLogger.info("MCP server created and connected successfully");
+
+    // Register signal handlers for graceful shutdown
     process.on("SIGTERM", () => shutdown("SIGTERM"));
     process.on("SIGINT", () => shutdown("SIGINT"));
-
-    // Handle uncaught errors with silent logging
+    
+    // Handle uncaught exceptions
     process.on("uncaughtException", (error) => {
-      logger.error("Uncaught exception", { 
+      appLogger.error("Uncaught exception", {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      shutdown("UNCAUGHT_EXCEPTION");
     });
-
-    process.on("unhandledRejection", (reason: unknown) => {
-      logger.error("Unhandled rejection", { 
+    
+    // Handle unhandled promise rejections
+    process.on("unhandledRejection", (reason) => {
+      appLogger.error("Unhandled promise rejection", {
         reason: reason instanceof Error ? reason.message : String(reason),
         stack: reason instanceof Error ? reason.stack : undefined
       });
-      shutdown("UNHANDLED_REJECTION");
     });
+    
+    appLogger.info("Server startup complete. Ready to handle requests.");
   } catch (error) {
-    // Handle startup errors
-    logger.error("Critical error during startup", { 
+    appLogger.error("Failed to start server", {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined
     });
+    
+    // Exit with non-zero code to indicate error
     process.exit(1);
   }
 };
 
-// Start the server
+// Start the application
 start().catch((error) => {
-  // Handle any uncaught errors from the start function silently
-  logger.error("Fatal error in server startup", {
+  appLogger.error("Fatal error during startup", {
     error: error instanceof Error ? error.message : String(error),
     stack: error instanceof Error ? error.stack : undefined
   });

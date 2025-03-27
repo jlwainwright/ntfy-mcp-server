@@ -4,7 +4,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { EventEmitter } from "events";
 import { promises as fs } from "fs";
 import path from "path";
-import { envConfig } from "../config/envConfig.js";
+import { fileURLToPath } from 'url';
+import { config } from "../config/index.js";
 import { BaseErrorCode, McpError } from "../types-global/errors.js";
 import { ErrorHandler } from "../utils/errorHandler.js";
 import { idGenerator } from "../utils/idGenerator.js";
@@ -12,28 +13,13 @@ import { logger } from "../utils/logger.js";
 import { createRequestContext } from "../utils/requestContext.js";
 import { configureContext, sanitizeInput } from "../utils/security.js";
 
+// Calculate __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Import tool and resource registrations
 import { registerNtfyTool } from "./tools/ntfyTool/index.js";
 import { registerNtfyResource } from "./resources/ntfyResource/index.js";
-
-/**
- * Note on MCP Resource Representations:
- * 
- * When registering resources like the ntfy resource, they appear in two forms in MCP:
- * 
- * 1. Resource Template - Example: "ntfy://{topic}"
- *    This is a template showing the URI pattern for accessing resources.
- *    The template contains placeholders (like {topic}) showing the structure
- *    of valid URIs. Templates help clients understand how to construct valid
- *    resource URIs.
- * 
- * 2. Concrete Resource Instance - Example: "ntfy://default"
- *    This is a specific, available resource that follows the template pattern.
- *    Concrete resources are actual endpoints that can be accessed to retrieve data.
- *    These are listed to help clients discover available resources.
- * 
- * Both representations are necessary for proper MCP resource discovery and usage.
- */
 
 // Maximum file size for package.json (5MB) to prevent potential DoS
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -46,8 +32,11 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const loadPackageInfo = async (): Promise<{ name: string; version: string }> => {
   return await ErrorHandler.tryCatch(
     async () => {
-      const pkgPath = path.resolve(process.cwd(), 'package.json');
+      // Use the globally defined __dirname from the top of the file
+      const pkgPath = path.resolve(__dirname, '../../package.json');
       const safePath = sanitizeInput.path(pkgPath);
+      
+      console.error(`Looking for package.json at: ${safePath}`);
       
       // Get file stats to check size before reading
       const stats = await fs.stat(safePath);
@@ -180,10 +169,11 @@ export const createMcpServer = async () => {
 
   // Create server-specific logger with context
   const serverLogger = logger.createChildLogger({
+    module: 'MCPServer',
     service: 'MCPServer',
     requestId: serverContext.requestId,
     serverId,
-    environment: envConfig().environment
+    environment: config.environment
   });
 
   // Create server events emitter
@@ -197,6 +187,7 @@ export const createMcpServer = async () => {
     });
   });
   
+  console.error("Initializing MCP server...");
   serverLogger.info("Initializing server...");
   
   const timers: Array<NodeJS.Timeout> = [];
@@ -207,179 +198,20 @@ export const createMcpServer = async () => {
       const packageInfo = await loadPackageInfo();
       
       // Update logger with package info
+      console.error("Loaded package info:", packageInfo.name, packageInfo.version);
       serverLogger.info("Loaded package info", {
         name: packageInfo.name,
         version: packageInfo.version
       });
-    
-      // Rate limiting configuration
-      const rateLimitSettings = {
-        windowMs: envConfig().rateLimit.windowMs || 60000,
-        maxRequests: envConfig().rateLimit.maxRequests || 100
-      };
-      
-      // Configure context settings
-      const contextConfig = configureContext({
-        // Any future non-auth context settings can go here
-      });
 
       // Create the MCP server instance
+      console.error("Creating MCP server instance...");
       server = new McpServer({
         name: packageInfo.name,
         version: packageInfo.version
       });
+      console.error("MCP server instance created");
       
-      // Set up error handling
-      process.on('uncaughtException', (error) => {
-        serverState.status = 'error';
-        serverState.errors.push({
-          timestamp: new Date(),
-          message: error.message,
-          code: error instanceof McpError ? error.code : 'UNCAUGHT_EXCEPTION'
-        });
-        
-        ErrorHandler.handleError(error, {
-          operation: 'UncaughtException',
-          context: serverContext,
-          critical: true
-        });
-      });
-      
-      process.on('unhandledRejection', (reason) => {
-        serverState.status = 'error';
-        serverState.errors.push({
-          timestamp: new Date(),
-          message: reason instanceof Error ? reason.message : String(reason),
-          code: reason instanceof McpError ? reason.code : 'UNHANDLED_REJECTION'
-        });
-        
-        ErrorHandler.handleError(reason, {
-          operation: 'UnhandledRejection',
-          context: serverContext,
-          critical: true
-        });
-      });
-      
-      /**
-       * Update server status based on current state
-       */
-      const updateServerStatus = () => {
-        const requiredToolsMet = Array.from(serverState.requiredTools)
-          .every(tool => serverState.registeredTools.has(tool));
-        const requiredResourcesMet = Array.from(serverState.requiredResources)
-          .every(resource => serverState.registeredResources.has(resource));
-        
-        const oldStatus = serverState.status;
-        // Only update if not in terminal states
-        if (!['shutdown', 'shutting_down'].includes(oldStatus)) {
-          const newStatus = requiredToolsMet && requiredResourcesMet ? 'running' : 'degraded';
-          if (oldStatus !== newStatus) {
-            serverState.status = newStatus;
-            serverEvents.emitStateChange(oldStatus, newStatus);
-          }
-        }
-      };
-      
-      /**
-       * Health check function
-       */
-      function runHealthCheck() {
-        return ErrorHandler.tryCatch(
-          async () => {
-            serverState.lastHealthCheck = new Date();
-            
-            // Check for stalled operations (longer than 5 minutes)
-            const now = Date.now();
-            for (const [opId, opInfo] of serverState.activeOperations.entries()) {
-              const opRuntime = now - opInfo.startTime.getTime();
-              if (opRuntime > 300000) { // 5 minutes
-                serverLogger.warn(`Operation ${opInfo.operation} (${opId}) has been running for over 5 minutes`, {
-                  operation: opInfo.operation,
-                  startTime: opInfo.startTime,
-                  runtime: opRuntime
-                });
-              }
-            }
-            
-            serverLogger.debug("Server health check", { 
-              status: serverState.status,
-              uptime: (now - serverState.startTime.getTime()) / 1000,
-              activeOperations: serverState.activeOperations.size,
-              errors: serverState.errors.length
-            });
-          },
-          {
-            operation: 'HealthCheck',
-            context: serverContext
-          }
-        );
-      }
-      
-      // Create interval that won't prevent process exit
-      const healthCheckInterval = setInterval(() => runHealthCheck(), 60000); // Every minute
-      healthCheckInterval.unref(); // Ensures this won't prevent process exit
-      
-      // Track the interval for cleanup
-      timers.push(healthCheckInterval);
-      
-      /**
-       * Cleanup function to handle graceful shutdown
-       */
-      const cleanup = async () => {
-        return await ErrorHandler.tryCatch(
-          async () => {
-            // Set state to shutting_down if not already
-            if (serverState.status !== 'shutting_down' && serverState.status !== 'shutdown') {
-              const oldStatus = serverState.status;
-              serverState.status = 'shutting_down';
-              serverEvents.emitStateChange(oldStatus, 'shutting_down');
-            }
-            
-            // Clean up all timers
-            for (const timer of timers) {
-              clearInterval(timer);
-              clearTimeout(timer);
-            }
-            
-            // Wait for active operations to complete (with timeout)
-            if (serverState.activeOperations.size > 0) {
-              serverLogger.info(`Waiting for ${serverState.activeOperations.size} active operations to complete...`);
-              
-              // In a real implementation, you might want to wait for operations to complete
-              // or implement a timeout mechanism
-            }
-            
-            // Close the server
-            if (server) {
-              await server.close();
-              serverLogger.info("Server closed successfully");
-            }
-            
-            // Set final state
-            serverState.status = 'shutdown';
-            
-            return true;
-          },
-          {
-            operation: 'Cleanup',
-            context: serverContext
-          }
-        );
-      };
-      
-      // Track operation for cleanup on shutdown
-      process.on('SIGINT', async () => {
-        serverLogger.info("Shutting down server due to SIGINT signal...");
-        await cleanup();
-        process.exit(0);
-      });
-      
-      process.on('SIGTERM', async () => {
-        serverLogger.info("Shutting down server due to SIGTERM signal...");
-        await cleanup();
-        process.exit(0);
-      });
-
       // Register tools and resources in parallel with error handling
       type RegistrationResult = {
         success: boolean;
@@ -393,6 +225,7 @@ export const createMcpServer = async () => {
         name: string,
         registerFn: () => Promise<void>
       ): Promise<RegistrationResult> => {
+        console.error(`Registering ${type}: ${name}`);
         try {
           await ErrorHandler.tryCatch(
             async () => await registerFn(),
@@ -410,13 +243,16 @@ export const createMcpServer = async () => {
             serverState.registeredResources.add(name);
           }
           
+          console.error(`Successfully registered ${type}: ${name}`);
           return { success: true, type, name };
         } catch (error) {
+          console.error(`Failed to register ${type}: ${name}`, error);
           return { success: false, type, name, error };
         }
       };
       
       // Register components with proper error handling
+      console.error("Registering components...");
       const registrationPromises: Promise<RegistrationResult>[] = [
         registerComponent('tool', 'send_ntfy', () => registerNtfyTool(server!)),
         registerComponent('resource', 'ntfy-resource', () => registerNtfyResource(server!)),
@@ -442,125 +278,37 @@ export const createMcpServer = async () => {
       
       // Process failed registrations
       if (failedRegistrations.length > 0) {
+        console.error(`${failedRegistrations.length} registrations failed initially`, 
+          failedRegistrations.map(f => `${f.type}:${f.name}`));
+        
         serverLogger.warn(`${failedRegistrations.length} registrations failed initially`, {
           failedComponents: failedRegistrations.map(f => `${f.type}:${f.name}`) 
         });
-        
-        // Track failed registrations for potential retry
-        for (const failure of failedRegistrations) {
-          serverState.failedRegistrations.push({
-            type: failure.type,
-            name: failure.name,
-            error: failure.error || new Error('Unknown error during registration'),
-            attempts: 1
-          });
-        }
-        
-        // Update server status based on failures
-        updateServerStatus();
-        
-        // Set up retry mechanism for failed registrations
-        if (serverState.failedRegistrations.length > 0) {
-          const retryInterval = setInterval(async () => {
-            await ErrorHandler.tryCatch(
-              async () => {
-                if (serverState.failedRegistrations.length === 0) {
-                  clearInterval(retryInterval);
-                  return;
-                }
-                
-                const retryable = serverState.failedRegistrations.filter(f => f.attempts < MAX_REGISTRATION_RETRIES);
-                if (retryable.length === 0) {
-                  serverLogger.warn("Maximum retry attempts reached for all failed registrations");
-                  clearInterval(retryInterval);
-                  return;
-                }
-                
-                serverLogger.info(`Attempting to retry ${retryable.length} failed registrations...`);
-                
-                // Retry each component
-                for (let i = 0; i < retryable.length; i++) {
-                  const failedReg = { ...retryable[i] }; // Get a copy to avoid mutation issues
-                  
-                  try {
-                    if (failedReg.type === 'tool' && failedReg.name === 'send_ntfy') {
-                      // Retry tool registration
-                      await registerNtfyTool(server!);
-                      serverState.registeredTools.add(failedReg.name);
-                      
-                      // Remove from failed list
-                      serverState.failedRegistrations = serverState.failedRegistrations.filter(
-                        f => !(f.type === 'tool' && f.name === failedReg.name)
-                      );
-                      
-                      serverLogger.info(`Successfully retried registration for tool: ${failedReg.name}`);
-                    } 
-                    else if (failedReg.type === 'resource' && failedReg.name === 'ntfy-resource') {
-                      // Retry resource registration
-                      await registerNtfyResource(server!);
-                      serverState.registeredResources.add(failedReg.name);
-                      
-                      // Remove from failed list
-                      serverState.failedRegistrations = serverState.failedRegistrations.filter(
-                        f => !(f.type === 'resource' && f.name === failedReg.name)
-                      );
-                      
-                      serverLogger.info(`Successfully retried registration for resource: ${failedReg.name}`);
-                    }
-                  } catch (error) {
-                    // Increment retry count
-                    const failedItem = serverState.failedRegistrations.find(
-                      f => f.type === failedReg.type && f.name === failedReg.name
-                    );
-                    
-                    if (failedItem) {
-                      failedItem.attempts++;
-                      failedItem.error = error;
-                    }
-                    
-                    serverLogger.error(`Retry failed for ${failedReg.type} ${failedReg.name}`, { 
-                      error: error instanceof Error ? error.message : String(error),
-                      attemptNumber: failedItem?.attempts
-                    });
-                  }
-                }
-                
-                // After retry attempts, update server status
-                updateServerStatus();
-              },
-              {
-                operation: 'RetryRegistrations',
-                context: serverContext
-              }
-            );
-          }, 30000); // Retry every 30 seconds
-          
-          // Ensure interval doesn't prevent process exit
-          retryInterval.unref();
-          // Track the interval for cleanup
-          timers.push(retryInterval);
-        }
       }
 
-      // Connect using stdio transport
-      await server.connect(new StdioServerTransport());
+      // Add debug logs to diagnose the connection issue
+      console.error("About to connect to stdio transport");
       
-      // Update server state
-      const oldStatus = serverState.status;
-      serverState.status = 'running';
-      serverEvents.emitStateChange(oldStatus, 'running');
+      try {
+        // Connect using stdio transport
+        const transport = new StdioServerTransport();
+        console.error("Created StdioServerTransport instance");
+        
+        // Set event handlers - using type assertion to avoid TS errors
+        (server as any).onerror = (err: Error) => {
+          console.error(`Server error: ${err.message}`);
+        };
+        
+        // Skip setting onrequest since we don't have access to the type
+        
+        await server.connect(transport);
+        console.error("Connected to transport successfully");
+      } catch (error) {
+        console.error("Error connecting to transport:", error);
+        throw error;
+      }
       
-      serverLogger.info("Server started and connected successfully", {
-        tools: Array.from(serverState.registeredTools),
-        resources: Array.from(serverState.registeredResources)
-      });
-
-      // Add event listener for graceful shutdown
-      serverEvents.on('state:shutting_down', () => cleanup());
-
-      // Run initial health check
-      await runHealthCheck();
-
+      console.error("MCP server initialized and connected");
       return server;
     },
     {
@@ -579,11 +327,7 @@ export const createMcpServer = async () => {
       )
     }
   ).catch((error) => {
-    // Clean up timers
-    for (const timer of timers) {
-      clearInterval(timer);
-      clearTimeout(timer);
-    }
+    console.error("Fatal error in MCP server creation:", error);
     
     // Attempt to close server
     if (server) {
@@ -591,9 +335,7 @@ export const createMcpServer = async () => {
         server.close();
       } catch (closeError) {
         // Already in error state, just log
-        serverLogger.debug("Error while closing server during error recovery", {
-          error: closeError instanceof Error ? closeError.message : String(closeError)
-        });
+        console.error("Error while closing server during error recovery:", closeError);
       }
     }
     

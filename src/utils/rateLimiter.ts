@@ -45,6 +45,8 @@ export interface RateLimitEntry {
   count: number;
   /** When the window resets (timestamp) */
   resetTime: number;
+  /** Key for this entry, stored for faster deletion */
+  key: string;
 }
 
 /**
@@ -181,9 +183,10 @@ export class RateLimiter {
       
       // Create new entry or reset if expired
       if (!entry || now >= entry.resetTime) {
-        const newEntry = {
+        const newEntry: RateLimitEntry = {
           count: 1,
-          resetTime: now + this.config.windowMs
+          resetTime: now + this.config.windowMs,
+          key: limitKey
         };
         this.limits.set(limitKey, newEntry);
         return newEntry;

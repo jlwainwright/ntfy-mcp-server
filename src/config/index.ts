@@ -1,206 +1,124 @@
-/**
- * Configuration Index Module
- * 
- * This module serves as the central entrypoint for all configuration-related
- * functionality. It provides a unified API for accessing configuration values
- * from various sources (environment variables, package.json).
- */
-import { promises as fs } from "fs";
-import path from "path";
-import { BaseErrorCode, McpError } from "../types-global/errors.js";
-import { ErrorHandler } from "../utils/errorHandler.js";
-import { logger } from "../utils/logger.js";
-import { sanitizeInput } from "../utils/security.js";
-import { envConfig, EnvironmentConfig, getEnvironment, getLogLevel, getNtfyConfig, getRateLimit, getSecurity } from './envConfig.js';
+import dotenv from 'dotenv';
+import path from 'path';
+import { createRequestContext } from '../utils/requestContext.js';
+import { logger } from '../utils/logger.js';
 
-// Create a module-level logger for configuration
-const configLogger = logger.createChildLogger({
-  module: 'ConfigManager'
+// Initialize environment variables from .env file
+dotenv.config();
+
+// Create a request context for logging
+const configContext = createRequestContext({
+  operation: 'ConfigInit',
+  component: 'Config',
 });
 
-// Default package info in case we can't load it
-const DEFAULT_PACKAGE_INFO = {
-  name: "ntfy-mcp-server",
-  version: "0.0.0"
-};
-
-// Maximum file size for package.json (5MB) to prevent potential DoS
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+// Create a logger specific to config
+const configLogger = logger.createChildLogger({
+  module: 'Config',
+  service: 'Config',
+  requestId: configContext.requestId,
+});
 
 /**
- * Unified application configuration interface
+ * Environment validation and parsing utilities
  */
-export interface AppConfig {
-  // Server info
-  serverName: string;
-  serverVersion: string;
+const parsers = {
+  /**
+   * Parse environment string to number with validation
+   * 
+   * @param value - String value from environment
+   * @param defaultValue - Default value to use if parsing fails
+   * @returns Parsed number value
+   */
+  number: (value: string | undefined, defaultValue: number): number => {
+    if (!value) return defaultValue;
+    
+    const parsed = parseInt(value, 10);
+    if (isNaN(parsed)) {
+      configLogger.warn(`Invalid number for environment variable, using default: ${defaultValue}`, {
+        value,
+        defaultValue
+      });
+      return defaultValue;
+    }
+    
+    return parsed;
+  },
   
-  // Environment configuration 
-  environment: string;
-  logLevel: string;
+  /**
+   * Parse environment string to boolean
+   * 
+   * @param value - String value from environment
+   * @param defaultValue - Default value to use if parsing fails
+   * @returns Parsed boolean value
+   */
+  boolean: (value: string | undefined, defaultValue: boolean): boolean => {
+    if (!value) return defaultValue;
+    
+    const normalized = value.toLowerCase().trim();
+    if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+    
+    configLogger.warn(`Invalid boolean for environment variable, using default: ${defaultValue}`, {
+      value,
+      defaultValue
+    });
+    return defaultValue;
+  },
+  
+  /**
+   * Parse environment string to an array of strings
+   * 
+   * @param value - Comma-separated string value from environment
+   * @param defaultValue - Default value to use if parsing fails
+   * @returns Array of parsed string values
+   */
+  array: (value: string | undefined, defaultValue: string[] = []): string[] => {
+    if (!value) return defaultValue;
+    
+    return value.split(',').map(item => item.trim()).filter(Boolean);
+  }
+};
+
+/**
+ * Environment variable configuration
+ */
+export const config = {
+  environment: process.env.NODE_ENV || 'development',
+  logLevel: process.env.LOG_LEVEL || 'info',
+  
+  // HTTP server configuration
+  server: {
+    port: parsers.number(process.env.PORT, 3000),
+    host: process.env.HOST || 'localhost',
+  },
+  
+  // Rate limiting settings
   rateLimit: {
-    windowMs: number;
-    maxRequests: number;
-  };
-  security: Record<string, any>;
+    windowMs: parsers.number(process.env.RATE_LIMIT_WINDOW_MS, 60000),
+    maxRequests: parsers.number(process.env.RATE_LIMIT_MAX_REQUESTS, 100),
+  },
   
-  // Ntfy configuration
+  // Ntfy notification service configuration
   ntfy: {
-    apiKey: string;
-    baseUrl: string;
-    defaultTopic: string;
-    requestTimeout: number;
-    maxRetries: number;
-    maxMessageSize: number;
-  };
-  
-  // Metadata
-  configLoadTime: string;
-}
-
-/**
- * Load and parse the package.json file to get application information
- * 
- * @returns Promise resolving to object containing name and version from package.json
- */
-async function loadPackageInfo(): Promise<{ name: string; version: string }> {
-  try {
-    // Get package info
-    const pkgPath = path.resolve(process.cwd(), 'package.json');
-    const sanitizedPath = sanitizeInput.path(pkgPath);
-    
-    configLogger.debug(`Loading package info from ${sanitizedPath}`);
-    
-    // Get file stats to check size before reading
-    const stats = await fs.stat(sanitizedPath);
-    
-    // Check file size to prevent DoS attacks
-    if (stats.size > MAX_FILE_SIZE) {
-      throw new McpError(
-        BaseErrorCode.VALIDATION_ERROR,
-        `package.json file is too large (${stats.size} bytes)`,
-        { path: sanitizedPath, maxSize: MAX_FILE_SIZE }
-      );
-    }
-    
-    // Use async file operations
-    const pkgContent = await fs.readFile(sanitizedPath, 'utf-8');
-    const pkg = JSON.parse(pkgContent);
-    
-    // Validate expected fields
-    if (!pkg.name || typeof pkg.name !== 'string') {
-      throw new McpError(
-        BaseErrorCode.VALIDATION_ERROR,
-        'Invalid package.json: missing or invalid name field',
-        { path: sanitizedPath }
-      );
-    }
-    
-    if (!pkg.version || typeof pkg.version !== 'string') {
-      throw new McpError(
-        BaseErrorCode.VALIDATION_ERROR,
-        'Invalid package.json: missing or invalid version field',
-        { path: sanitizedPath }
-      );
-    }
-    
-    configLogger.info(`Loaded application info`, {
-      name: pkg.name,
-      version: pkg.version
-    });
-    
-    return {
-      name: pkg.name,
-      version: pkg.version
-    };
-  } catch (error) {
-    // Log the error but don't rethrow
-    ErrorHandler.handleError(error, {
-      context: { path: path.resolve(process.cwd(), 'package.json') },
-      operation: "loading package info"
-    });
-    
-    configLogger.error(`Failed to load package.json, using default values`, {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    
-    // Return default values
-    return DEFAULT_PACKAGE_INFO;
-  }
-}
-
-// Cache for package info
-let cachedPackageInfo: { name: string; version: string } | null = null;
-
-/**
- * Get package info, loading it on first call
- */
-export async function getPackageInfo(): Promise<{ name: string; version: string }> {
-  if (!cachedPackageInfo) {
-    cachedPackageInfo = await loadPackageInfo();
-  }
-  return cachedPackageInfo;
-}
-
-/**
- * Build the full application configuration object
- * 
- * This function lazy-loads all configuration components when called.
- */
-async function buildAppConfig(): Promise<AppConfig> {
-  const packageInfo = await getPackageInfo();
-  const env = envConfig();
-  
-  configLogger.info(`Building unified application configuration`, {
-    environment: env.environment,
-    packageName: packageInfo.name
-  });
-  
-  return {
-    // Server info
-    serverName: packageInfo.name,
-    serverVersion: packageInfo.version,
-    
-    // Environment configuration
-    environment: env.environment,
-    logLevel: env.logLevel,
-    rateLimit: env.rateLimit,
-    security: env.security,
-    
-    // Ntfy configuration
-    ntfy: env.ntfy,
-    
-    // Metadata
-    configLoadTime: new Date().toISOString()
-  };
-}
-
-// Cache for config
-let cachedAppConfig: AppConfig | null = null;
-
-/**
- * Get the complete application configuration
- * 
- * @returns Promise resolving to the full application configuration
- */
-export async function getConfig(): Promise<AppConfig> {
-  if (!cachedAppConfig) {
-    cachedAppConfig = await buildAppConfig();
-    
-    // Log configuration summary
-    configLogger.info(`Configuration loaded successfully`, {
-      serverName: cachedAppConfig.serverName,
-      version: cachedAppConfig.serverVersion,
-      environment: cachedAppConfig.environment
-    });
-  }
-  return cachedAppConfig;
-}
-
-// Export types and functions from the sub-modules
-export {
-  // Environment config
-  envConfig, getEnvironment, getLogLevel, getNtfyConfig, getRateLimit, getSecurity
+    baseUrl: process.env.NTFY_BASE_URL || 'https://ntfy.sh',
+    defaultTopic: process.env.NTFY_DEFAULT_TOPIC || '',
+    apiKey: process.env.NTFY_API_KEY || '',
+    maxMessageSize: parsers.number(process.env.NTFY_MAX_MESSAGE_SIZE, 4096),
+    maxRetries: parsers.number(process.env.NTFY_MAX_RETRIES, 3),
+  },
 };
-export type { EnvironmentConfig };
 
+// Log the loaded configuration (excluding sensitive values)
+configLogger.info('Configuration loaded', {
+  environment: config.environment,
+  logLevel: config.logLevel,
+  server: config.server,
+  ntfy: {
+    baseUrl: config.ntfy.baseUrl,
+    defaultTopic: config.ntfy.defaultTopic || '(not set)',
+    hasApiKey: !!config.ntfy.apiKey,
+  },
+});
+
+export default config;

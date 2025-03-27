@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getNtfyConfig } from '../../../config/envConfig.js';
+import { config } from '../../../config/index.js';
 import { logger } from '../../../utils/logger.js';
 import { createRequestContext } from '../../../utils/requestContext.js';
 import { sanitizeInput } from '../../../utils/sanitization.js';
@@ -41,7 +41,7 @@ export function createSendNtfyToolSchema() {
   schemaLogger.debug('Creating send_ntfy tool schema');
   
   // Get the latest configuration
-  const ntfyConfig = getNtfyConfig();
+  const ntfyConfig = config.ntfy;
   
   // Process configuration values
   const baseUrl = ntfyConfig.baseUrl || 'https://ntfy.sh';

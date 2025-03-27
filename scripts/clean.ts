@@ -36,23 +36,27 @@ import { join } from 'path';
 /**
  * Standardized error category classification
  */
-enum ErrorCategoryType {
-  CATEGORY_VALIDATION = 'VALIDATION',
-  CATEGORY_FILESYSTEM = 'FILESYSTEM',
-  CATEGORY_SYSTEM = 'SYSTEM',
-  CATEGORY_UNKNOWN = 'UNKNOWN'
-}
+const ErrorCategoryType = {
+  CATEGORY_VALIDATION: 'VALIDATION',
+  CATEGORY_FILESYSTEM: 'FILESYSTEM',
+  CATEGORY_SYSTEM: 'SYSTEM',
+  CATEGORY_UNKNOWN: 'UNKNOWN'
+} as const;
+
+type ErrorCategoryType = typeof ErrorCategoryType[keyof typeof ErrorCategoryType];
 
 /**
  * Error severity classification
  */
-enum ErrorSeverityLevel {
-  SEVERITY_DEBUG = 0,
-  SEVERITY_INFO = 1,
-  SEVERITY_WARN = 2,
-  SEVERITY_ERROR = 3,
-  SEVERITY_FATAL = 4
-}
+const ErrorSeverityLevel = {
+  SEVERITY_DEBUG: 0,
+  SEVERITY_INFO: 1,
+  SEVERITY_WARN: 2,
+  SEVERITY_ERROR: 3,
+  SEVERITY_FATAL: 4
+} as const;
+
+type ErrorSeverityLevel = typeof ErrorSeverityLevel[keyof typeof ErrorSeverityLevel];
 
 /**
  * Standardized error structure for consistent error handling

@@ -352,16 +352,52 @@ export class NtfySubscriber {
         this.connectionActive = false;
         this.logger.error('Error reading from stream', {
           error: error instanceof Error ? error.message : String(error),
+          errorType: error instanceof Error ? error.name : typeof error,
           requestId
         });
         
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw new NtfySubscriptionClosedError('Subscription aborted');
-        } else {
-          throw new NtfyConnectionError(
-            `Error reading from stream: ${error instanceof Error ? error.message : String(error)}`
-          );
+        // Handle various error types more specifically
+        if (error instanceof Error) {
+          // AbortError - intentional close
+          if (error.name === 'AbortError') {
+            throw new NtfySubscriptionClosedError('Subscription aborted');
+          }
+          
+          // Network errors
+          if (
+            error.name === 'NetworkError' || 
+            error.name === 'TypeError' ||
+            error.message.includes('network') ||
+            error.message.includes('connection')
+          ) {
+            const connectionError = new NtfyConnectionError(
+              `Network error during stream processing: ${error.message}`
+            );
+            // Add additional context to the error details
+            connectionError.details = { 
+              originalError: error.name,
+              originalMessage: error.message
+            };
+            throw connectionError;
+          }
+          
+          // Timeout errors
+          if (
+            error.name === 'TimeoutError' ||
+            error.message.includes('timeout') ||
+            error.message.includes('timed out')
+          ) {
+            throw new NtfyTimeoutError(
+              `Stream reading timed out: ${error.message}`,
+              DEFAULT_REQUEST_TIMEOUT
+            );
+          }
         }
+        
+        // Default case - generic connection error
+        throw new NtfyConnectionError(
+          `Error reading from stream: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
   }
@@ -565,13 +601,22 @@ export class NtfySubscriber {
     });
     
     this.reconnectAttempts++;
-    const delay = RECONNECT_DELAY * this.reconnectAttempts;
+    
+    // Add jitter to prevent thundering herd problem
+    // and cap at a maximum delay of 30 seconds
+    const MAX_BACKOFF_DELAY = 30000; // 30 seconds
+    const baseDelay = RECONNECT_DELAY * this.reconnectAttempts;
+    const jitter = Math.floor(Math.random() * 1000); // Add up to 1 second of jitter
+    const delay = Math.min(baseDelay + jitter, MAX_BACKOFF_DELAY);
     
     this.logger.info('Scheduling reconnection attempt', {
       topic,
       attemptNumber: this.reconnectAttempts,
       maxAttempts: MAX_RECONNECT_ATTEMPTS,
-      delayMs: delay,
+      baseDelay: baseDelay,
+      jitter: jitter,
+      actualDelay: delay,
+      maxBackoff: MAX_BACKOFF_DELAY,
       requestId: requestCtx.requestId
     });
     

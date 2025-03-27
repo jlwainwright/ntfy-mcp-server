@@ -2,19 +2,19 @@
  * Ntfy publisher implementation for sending notifications
  */
 import { DEFAULT_NTFY_BASE_URL, DEFAULT_REQUEST_TIMEOUT, ERROR_MESSAGES } from './constants.js';
-import { NtfyConnectionError, NtfyInvalidTopicError, ntfyErrorMapper } from './errors.js';
+import { NtfyAuthenticationError, NtfyConnectionError, NtfyInvalidTopicError, ntfyErrorMapper } from './errors.js';
 import { NtfyAction, NtfyAttachment, NtfyPriority } from './types.js';
 import { 
   createTimeout, 
   validateTopicSync, 
   createRequestHeadersSync 
 } from './utils.js';
+import { BaseErrorCode, McpError } from '../../types-global/errors.js';
 import { ErrorHandler } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
 import { sanitizeInput, sanitizeInputForLogging } from '../../utils/sanitization.js';
 import { createRequestContext } from '../../utils/requestContext.js';
 import { idGenerator } from '../../utils/idGenerator.js';
-import { BaseErrorCode } from '../../types-global/errors.js';
 
 // Create a module-specific logger
 const publisherLogger = logger.createChildLogger({ 
@@ -260,10 +260,44 @@ export async function publish(
             url,
             requestId: requestCtx.requestId
           });
-          throw new NtfyConnectionError(
-            `HTTP Error: ${response.status} ${response.statusText}`,
-            url
-          );
+          
+          // Provide more specific error messages based on status code
+          let errorMessage = `HTTP Error: ${response.status} ${response.statusText}`;
+          
+          switch (response.status) {
+            case 401:
+              errorMessage = 'Authentication failed: invalid credentials';
+              throw new NtfyAuthenticationError(errorMessage);
+            case 403:
+              errorMessage = 'Access forbidden: insufficient permissions';
+              throw new McpError(
+                BaseErrorCode.FORBIDDEN, 
+                errorMessage, 
+                { url, statusCode: response.status }
+              );
+            case 404:
+              errorMessage = 'Topic or resource not found';
+              throw new McpError(
+                BaseErrorCode.NOT_FOUND, 
+                errorMessage, 
+                { url, statusCode: response.status, topic }
+              );
+            case 429:
+              errorMessage = 'Too many requests: rate limit exceeded';
+              throw new McpError(
+                BaseErrorCode.RATE_LIMITED, 
+                errorMessage, 
+                { url, statusCode: response.status }
+              );
+            case 500:
+            case 502:
+            case 503:
+            case 504:
+              errorMessage = `Server error: ${response.statusText}`;
+              // Fall through to default error handling
+            default:
+              throw new NtfyConnectionError(errorMessage, url);
+          }
         }
 
         // Parse response

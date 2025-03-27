@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getNtfyConfig } from "../../../config/envConfig.js";
+import { config } from "../../../config/index.js";
 import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
 import { ErrorHandler } from "../../../utils/errorHandler.js";
 import { logger } from "../../../utils/logger.js";
@@ -42,7 +42,7 @@ export const registerNtfyTool = async (server: McpServer): Promise<void> => {
       const schemaWithLatestConfig = SendNtfyToolInputSchema();
       
       // Log default topic info at registration time for verification
-      const ntfyConfig = getNtfyConfig();
+      const ntfyConfig = config.ntfy;
       toolLogger.info('Registering ntfy tool handler with config', {
         defaultTopic: ntfyConfig.defaultTopic || '(not set)',
         baseUrl: ntfyConfig.baseUrl,

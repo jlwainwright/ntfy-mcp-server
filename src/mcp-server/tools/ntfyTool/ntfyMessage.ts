@@ -1,7 +1,7 @@
 import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
 import { ErrorHandler } from "../../../utils/errorHandler.js";
 import { publish, NtfyPublishOptions, NtfyPriority, validateTopicSync } from "../../../services/ntfy/index.js";
-import { getNtfyConfig, getRateLimit } from "../../../config/envConfig.js";
+import { config } from "../../../config/index.js";
 import { SendNtfyToolInput, SendNtfyToolResponse, createSendNtfyToolSchema } from "./types.js";
 import { logger } from "../../../utils/logger.js";
 import { createRequestContext } from "../../../utils/requestContext.js";
@@ -16,7 +16,7 @@ const ntfyToolLogger = logger.createChildLogger({
 });
 
 // Create rate limiters for global and per-topic usage
-const rateLimit = getRateLimit();
+const rateLimit = config.rateLimit;
 const globalRateLimiter = new RateLimiter({
   windowMs: rateLimit.windowMs,
   maxRequests: rateLimit.maxRequests,
@@ -83,7 +83,7 @@ export const processNtfyMessage = async (
       });
       
       // Get the ntfy config
-      const ntfyConfig = getNtfyConfig();
+      const ntfyConfig = config.ntfy;
       
       // Use default topic from env if not provided
       const finalTopic = topic || ntfyConfig.defaultTopic;
@@ -315,7 +315,7 @@ export const processNtfyMessage = async (
     {
       operation: 'processNtfyMessage',
       context: { 
-        topic: params.topic || getNtfyConfig().defaultTopic,
+        topic: params.topic || config.ntfy.defaultTopic,
         hasTitle: !!params.title
       },
       input: sanitizeInputForLogging(params),

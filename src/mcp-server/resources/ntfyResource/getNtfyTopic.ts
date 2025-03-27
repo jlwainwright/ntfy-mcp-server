@@ -2,11 +2,12 @@ import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
 import { ErrorHandler } from '../../../utils/errorHandler.js';
 import { logger } from '../../../utils/logger.js';
 import { createRequestContext } from '../../../utils/security.js';
-import { getNtfyConfig } from '../../../config/envConfig.js';
+import { config } from '../../../config/index.js';
 import { NtfyResourceQuery, NtfyResourceQuerySchema, NtfyResourceResponse } from './types.js';
 
 // Create resource-specific logger
 const resourceLogger = logger.createChildLogger({
+  module: 'NtfyResource',
   service: 'NtfyResource'
 });
 
@@ -25,7 +26,7 @@ export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
 
   return ErrorHandler.tryCatch(async () => {
     // Get the default topic from configuration
-    const ntfyConfig = getNtfyConfig();
+    const ntfyConfig = config.ntfy;
     let defaultTopic = ntfyConfig.defaultTopic;
     
     if (!defaultTopic) {

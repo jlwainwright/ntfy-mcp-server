@@ -65,10 +65,14 @@ export const registerNtfyResource = async (server: McpServer): Promise<void> => 
         
         // Resource handler
         async (uri, params) => {
+          // Decode the URI pathname to handle URL encoding
+          const decodedPathname = decodeURIComponent(uri.pathname);
+          
           // Handle both /default and default pathname formats for backward compatibility
-          if (uri.pathname !== '/default' && uri.pathname !== 'default') {
+          if (decodedPathname !== '/default' && decodedPathname !== 'default') {
             resourceLogger.error(`Invalid ntfy resource uri: ${uri.href}`, {
               pathname: uri.pathname,
+              decodedPathname,
               href: uri.href,
               protocol: uri.protocol
             });

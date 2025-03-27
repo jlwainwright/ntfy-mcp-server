@@ -1,0 +1,4099 @@
+diff --git a/.clinerules b/.clinerules
+deleted file mode 100644
+index 98b6467..0000000
+--- a/.clinerules
++++ /dev/null
+@@ -1,450 +0,0 @@
+-# MCP-TS-TEMPLATE DEVELOPER CHEAT SHEET
+-
+-# ntfy-mcp-server - Directory Structure
+-
+-Generated on: 2025-03-21 10:39:58
+-
+-```
+-ntfy-mcp-server
+-├── docs
+-    └── tree.md
+-├── logs
+-├── scripts
+-    ├── clean.ts
+-    └── tree.ts
+-├── src
+-    ├── config
+-    │   ├── envConfig.ts
+-    │   ├── index.ts
+-    │   └── mcpConfig.ts
+-    ├── mcp-server
+-    │   ├── resources
+-    │   │   └── echoResource
+-    │   │   │   ├── getEchoMessage.ts
+-    │   │   │   ├── index.ts
+-    │   │   │   ├── README.md
+-    │   │   │   └── types.ts
+-    │   ├── tools
+-    │   │   └── ntfyTool
+-    │   │   │   ├── index.ts
+-    │   │   │   ├── ntfyMessage.ts
+-    │   │   │   └── types.ts
+-    │   ├── utils
+-    │   │   └── registrationHelper.ts
+-    │   ├── README.md
+-    │   └── server.ts
+-    ├── services
+-    │   └── ntfy
+-    │   │   ├── constants.ts
+-    │   │   ├── errors.ts
+-    │   │   ├── index.ts
+-    │   │   ├── publisher.ts
+-    │   │   ├── subscriber.ts
+-    │   │   ├── types.ts
+-    │   │   └── utils.ts
+-    ├── types-global
+-    │   ├── errors.ts
+-    │   ├── mcp.ts
+-    │   └── tool.ts
+-    ├── utils
+-    │   ├── errorHandler.ts
+-    │   ├── idGenerator.ts
+-    │   ├── index.ts
+-    │   ├── logger.ts
+-    │   ├── rateLimiter.ts
+-    │   ├── requestContext.ts
+-    │   ├── sanitization.ts
+-    │   └── security.ts
+-    └── index.ts
+-├── .clinerules
+-├── .clinerules-code
+-├── .env.example
+-├── LICENSE
+-├── package-lock.json
+-├── package.json
+-├── README.md
+-├── tsconfig.json
+-└── tsconfig.scripts.json
+-
+-```
+-
+-_Note: This tree excludes files and directories matched by .gitignore and common patterns like node_modules._
+-
+-## 🚀 Quick Start Commands
+-
+-```bash
+-npm run build      # Compile TypeScript to JavaScript
+-npm run clean      # Clean build artifacts
+-npm run rebuild    # Clean and rebuild project
+-npm run tree       # Generate directory tree
+-npm run start      # Start the MCP server
+-```
+-
+-## 🛠️ Server Setup & Lifecycle
+-
+-### Main Entry Point (src/index.ts)
+-
+-```typescript
+-// Start the server and spawn MCP subservers
+-import { createMcpServer } from "./mcp-server/server.js";
+-
+-// Main startup function
+-const start = async () => {
+-  // Create startup context
+-  const startupContext = createRequestContext({
+-    operation: "ServerStartup",
+-    appName: "mcp-ts-template",
+-    environment: envConfig().environment,
+-  });
+-
+-  // Spawn MCP servers
+-  const mcpShutdownFn = await spawnMcpServers();
+-
+-  // Create main server
+-  const server = await createMcpServer();
+-
+-  // Register signal handlers
+-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+-  process.on("SIGINT", () => shutdown("SIGINT"));
+-};
+-
+-// Start the application
+-start();
+-```
+-
+-### Server Creation (src/mcp-server/server.ts)
+-
+-```typescript
+-// Create a new MCP server with tools and resources
+-export const createMcpServer = async () => {
+-  // Load package info
+-  const packageInfo = await loadPackageInfo();
+-
+-  // Create server instance
+-  const server = new McpServer({
+-    name: packageInfo.name,
+-    version: packageInfo.version,
+-  });
+-
+-  // Register tools and resources in parallel
+-  await Promise.allSettled([
+-    registerEchoTool(server),
+-    registerEchoResource(server),
+-  ]);
+-
+-  // Connect using stdio transport
+-  await server.connect(new StdioServerTransport());
+-
+-  return server;
+-};
+-```
+-
+-## 🧩 Creating MCP Components
+-
+-### Resource Registration (src/mcp-server/resources/echoResource/index.ts)
+-
+-```typescript
+-// Register an echo resource that responds to URIs like "echo://hello"
+-export const registerEchoResource = async (
+-  server: McpServer
+-): Promise<void> => {
+-  return registerResource(
+-    server,
+-    { name: "echo-resource" },
+-    async (server, resourceLogger: ChildLogger) => {
+-      // Create resource template
+-      const template = new ResourceTemplate("echo://{message}", {
+-        list: async () => ({
+-          resources: [
+-            {
+-              uri: "echo://hello",
+-              name: "Default Echo Message",
+-              description: "A simple echo resource example",
+-            },
+-          ],
+-        }),
+-        complete: {},
+-      });
+-
+-      // Register with full configuration
+-      server.resource(
+-        "echo-resource",
+-        template,
+-        {
+-          name: "Echo Message",
+-          description: "A simple echo resource that returns a message",
+-          mimeType: "application/json",
+-          querySchema: z.object({
+-            /*...*/
+-          }),
+-          examples: [
+-            /*...*/
+-          ],
+-        },
+-        async (uri, params) => {
+-          // Resource handler implementation
+-          return await ErrorHandler.tryCatch(/*...*/);
+-        }
+-      );
+-    }
+-  );
+-};
+-```
+-
+-### Tool Registration (src/mcp-server/tools/echoTool/index.ts)
+-
+-```typescript
+-// Register an echo tool that processes and formats messages
+-export const registerEchoTool = async (server: McpServer): Promise<void> => {
+-  return registerTool(
+-    server,
+-    { name: "echo_message" },
+-    async (server, toolLogger: ChildLogger) => {
+-      // Register the tool with simplified SDK pattern
+-      server.tool(
+-        "echo_message",
+-        {
+-          message: z
+-            .string()
+-            .min(1)
+-            .max(1000)
+-            .describe("The message to echo back (1-1000 characters)"),
+-          mode: z
+-            .enum(ECHO_MODES)
+-            .optional()
+-            .default("standard")
+-            .describe(
+-              "How to format the echoed message: standard (as-is), uppercase, or lowercase"
+-            ),
+-          repeat: z.number().int().min(1).max(10).optional().default(1),
+-          timestamp: z.boolean().optional().default(true),
+-        },
+-        async (params) => {
+-          return await ErrorHandler.tryCatch(
+-            async () => {
+-              const response = processEchoMessage(params);
+-              return {
+-                content: [
+-                  { type: "text", text: JSON.stringify(response, null, 2) },
+-                ],
+-              };
+-            },
+-            {
+-              /* error handling options */
+-            }
+-          );
+-        }
+-      );
+-    }
+-  );
+-};
+-```
+-
+-### Registration Helper (src/mcp-server/utils/registrationHelper.ts)
+-
+-```typescript
+-// Use these helpers for consistent registration pattern
+-import { registerTool } from "../../utils/registrationHelper.js";
+-import { registerResource } from "../../utils/registrationHelper.js";
+-
+-// Example usage:
+-registerTool(server, { name: "your_tool_name" }, async (server, logger) => {
+-  // Tool registration logic
+-});
+-```
+-
+-## 🔒 Error Handling
+-
+-### Using ErrorHandler (src/utils/errorHandler.ts)
+-
+-```typescript
+-import { ErrorHandler } from "./utils/errorHandler.js";
+-
+-// Try/catch pattern
+-const result = await ErrorHandler.tryCatch(
+-  async () => {
+-    // Operation that might fail
+-    return await someAsyncOperation();
+-  },
+-  {
+-    operation: "operation name",
+-    context: { additionalContext: "value" },
+-    input: { param1: "value1" },
+-    errorCode: BaseErrorCode.INTERNAL_ERROR,
+-    errorMapper: (error) =>
+-      new McpError(
+-        BaseErrorCode.VALIDATION_ERROR,
+-        `Custom error message: ${
+-          error instanceof Error ? error.message : "Unknown error"
+-        }`
+-      ),
+-  }
+-);
+-
+-// If result instanceof Error, handle the error
+-```
+-
+-### Custom Errors (src/types-global/errors.ts)
+-
+-```typescript
+-import { BaseErrorCode, McpError } from "./types-global/errors.js";
+-
+-throw new McpError(BaseErrorCode.INVALID_REQUEST, "Error message");
+-```
+-
+-## ⚙️ Configuration
+-
+-### Environment Config (src/config/envConfig.ts)
+-
+-```typescript
+-import { envConfig } from "./config/envConfig.js";
+-
+-// Access environment variables
+-const environment = envConfig().environment;
+-const logLevel = envConfig().logLevel;
+-const rateLimitSettings = {
+-  windowMs: envConfig().rateLimit.windowMs || 60000,
+-  maxRequests: envConfig().rateLimit.maxRequests || 100,
+-};
+-```
+-
+-### MCP Server Config (src/config/mcpConfig.ts)
+-
+-```typescript
+-import { enabledMcpServers } from "./config/mcpConfig.js";
+-
+-// Get configured MCP servers
+-const mcpServers = enabledMcpServers();
+-```
+-
+-## 📝 Logging
+-
+-### Using Logger (src/utils/logger.ts)
+-
+-```typescript
+-import { logger } from "./utils/logger.js";
+-
+-// Basic logging
+-logger.info("Information message", { context: "value" });
+-logger.error("Error message", { error: errorObj });
+-
+-// Child loggers for components
+-const serverLogger = logger.createChildLogger({
+-  service: "MCPServer",
+-  serverId: idGenerator.generateRandomString(8),
+-  environment: envConfig().environment,
+-});
+-
+-// Component-specific logger
+-const toolLogger = logger.createChildLogger({
+-  module: "EchoTool",
+-  operation: "registration",
+-});
+-
+-toolLogger.debug("Debug message");
+-```
+-
+-## 🛡️ Security
+-
+-### Input Sanitization (src/utils/security.ts)
+-
+-```typescript
+-import { sanitizeInput } from "./utils/security.js";
+-
+-// Sanitize user inputs
+-const safeName = sanitizeInput.string(name);
+-const safePath = sanitizeInput.path(pkgPath);
+-const safeHtml = sanitizeInput.html(userHtml);
+-```
+-
+-### Request Context (src/utils/requestContext.ts)
+-
+-```typescript
+-import { createRequestContext } from "./utils/security.js";
+-
+-// Create context for operation tracking
+-const context = createRequestContext({
+-  operation: "OperationName",
+-  userId: "user-id",
+-});
+-```
+-
+-## 🔄 Process Management
+-
+-### Spawning MCP Servers (src/index.ts)
+-
+-```typescript
+-// Load configured MCP servers
+-const mcpServers = enabledMcpServers();
+-
+-// Spawn child processes
+-const childProc = spawn(serverConfig.command, serverConfig.args, {
+-  env: { ...process.env, ...serverConfig.env },
+-  stdio: ["pipe", "pipe", "pipe"],
+-});
+-
+-// Handle process events
+-childProc.stdout?.on("data", (data: Buffer) => {
+-  const output = data.toString().trim();
+-  if (output) {
+-    processLogger.debug(`stdout:`, { output: output.substring(0, 500) });
+-  }
+-});
+-
+-childProc.on("exit", (code: number | null, signal: string | null) => {
+-  // Handle process exit
+-});
+-```
+-
+-### Graceful Shutdown (src/index.ts)
+-
+-```typescript
+-// Register signal handlers
+-process.on("SIGTERM", () => shutdown("SIGTERM"));
+-process.on("SIGINT", () => shutdown("SIGINT"));
+-
+-// Implement shutdown function
+-const shutdown = async (signal: string) => {
+-  // Close MCP servers
+-  if (mcpServerProcesses.size > 0) {
+-    await shutdownMcpServers();
+-  }
+-
+-  // Close main server
+-  if (server) {
+-    await server.close();
+-  }
+-
+-  process.exit(0);
+-};
+-```
+-
+-## 🧩 MCP SDK Integration
+-
+-### SDK Dependencies (package.json)
+-
+-- `@modelcontextprotocol/sdk`: Main MCP SDK for server/client implementation
+-- Version used: ^1.7.0
+-- Key schemas: `ListResourcesRequestSchema`, `ReadResourceRequestSchema`, etc.
+-
+-### Schema Types (from @modelcontextprotocol/sdk/types.js)
+-
+-```typescript
+-import {
+-  CallToolRequestSchema,
+-  ListResourcesRequestSchema,
+-  ReadResourceRequestSchema,
+-} from "@modelcontextprotocol/sdk/types.js";
+-```
+-
+-### Input Validation with Zod
+-
+-```typescript
+-// Define input schema with zod
+-{
+-  message: z.string().min(1).max(1000).describe(
+-    'The message to echo back (1-1000 characters)'
+-  ),
+-  mode: z.enum(['standard', 'uppercase', 'lowercase']).optional().default('standard')
+-}
+-```
+diff --git a/.clinerules-code b/.clinerules-code
+deleted file mode 100644
+index cde8c75..0000000
+--- a/.clinerules-code
++++ /dev/null
+@@ -1,452 +0,0 @@
+-# MCP-TS-TEMPLATE DEVELOPER CHEAT SHEET
+-
+-# ntfy-mcp-server - Directory Structure
+-
+-Generated on: 2025-03-21 10:39:58
+-
+-
+-```
+-ntfy-mcp-server
+-├── docs
+-    └── tree.md
+-├── logs
+-├── scripts
+-    ├── clean.ts
+-    └── tree.ts
+-├── src
+-    ├── config
+-    │   ├── envConfig.ts
+-    │   ├── index.ts
+-    │   └── mcpConfig.ts
+-    ├── mcp-server
+-    │   ├── resources
+-    │   │   └── echoResource
+-    │   │   │   ├── getEchoMessage.ts
+-    │   │   │   ├── index.ts
+-    │   │   │   ├── README.md
+-    │   │   │   └── types.ts
+-    │   ├── tools
+-    │   │   └── ntfyTool
+-    │   │   │   ├── index.ts
+-    │   │   │   ├── ntfyMessage.ts
+-    │   │   │   └── types.ts
+-    │   ├── utils
+-    │   │   └── registrationHelper.ts
+-    │   ├── README.md
+-    │   └── server.ts
+-    ├── services
+-    │   └── ntfy
+-    │   │   ├── constants.ts
+-    │   │   ├── errors.ts
+-    │   │   ├── index.ts
+-    │   │   ├── publisher.ts
+-    │   │   ├── subscriber.ts
+-    │   │   ├── types.ts
+-    │   │   └── utils.ts
+-    ├── types-global
+-    │   ├── errors.ts
+-    │   ├── mcp.ts
+-    │   └── tool.ts
+-    ├── utils
+-    │   ├── errorHandler.ts
+-    │   ├── idGenerator.ts
+-    │   ├── index.ts
+-    │   ├── logger.ts
+-    │   ├── rateLimiter.ts
+-    │   ├── requestContext.ts
+-    │   ├── sanitization.ts
+-    │   └── security.ts
+-    └── index.ts
+-├── .clinerules
+-├── .clinerules-code
+-├── .env.example
+-├── LICENSE
+-├── package-lock.json
+-├── package.json
+-├── README.md
+-├── tsconfig.json
+-└── tsconfig.scripts.json
+-
+-```
+-
+-_Note: This tree excludes files and directories matched by .gitignore and common patterns like node_modules._
+-
+-
+-## 🚀 Quick Start Commands
+-
+-```bash
+-npm run build      # Compile TypeScript to JavaScript
+-npm run clean      # Clean build artifacts
+-npm run rebuild    # Clean and rebuild project
+-npm run tree       # Generate directory tree
+-npm run start      # Start the MCP server
+-```
+-
+-## 🛠️ Server Setup & Lifecycle
+-
+-### Main Entry Point (src/index.ts)
+-
+-```typescript
+-// Start the server and spawn MCP subservers
+-import { createMcpServer } from "./mcp-server/server.js";
+-
+-// Main startup function
+-const start = async () => {
+-  // Create startup context
+-  const startupContext = createRequestContext({
+-    operation: "ServerStartup",
+-    appName: "mcp-ts-template",
+-    environment: envConfig().environment,
+-  });
+-
+-  // Spawn MCP servers
+-  const mcpShutdownFn = await spawnMcpServers();
+-
+-  // Create main server
+-  const server = await createMcpServer();
+-
+-  // Register signal handlers
+-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+-  process.on("SIGINT", () => shutdown("SIGINT"));
+-};
+-
+-// Start the application
+-start();
+-```
+-
+-### Server Creation (src/mcp-server/server.ts)
+-
+-```typescript
+-// Create a new MCP server with tools and resources
+-export const createMcpServer = async () => {
+-  // Load package info
+-  const packageInfo = await loadPackageInfo();
+-
+-  // Create server instance
+-  const server = new McpServer({
+-    name: packageInfo.name,
+-    version: packageInfo.version,
+-  });
+-
+-  // Register tools and resources in parallel
+-  await Promise.allSettled([
+-    registerEchoTool(server),
+-    registerEchoResource(server),
+-  ]);
+-
+-  // Connect using stdio transport
+-  await server.connect(new StdioServerTransport());
+-
+-  return server;
+-};
+-```
+-
+-## 🧩 Creating MCP Components
+-
+-### Resource Registration (src/mcp-server/resources/echoResource/index.ts)
+-
+-```typescript
+-// Register an echo resource that responds to URIs like "echo://hello"
+-export const registerEchoResource = async (
+-  server: McpServer
+-): Promise<void> => {
+-  return registerResource(
+-    server,
+-    { name: "echo-resource" },
+-    async (server, resourceLogger: ChildLogger) => {
+-      // Create resource template
+-      const template = new ResourceTemplate("echo://{message}", {
+-        list: async () => ({
+-          resources: [
+-            {
+-              uri: "echo://hello",
+-              name: "Default Echo Message",
+-              description: "A simple echo resource example",
+-            },
+-          ],
+-        }),
+-        complete: {},
+-      });
+-
+-      // Register with full configuration
+-      server.resource(
+-        "echo-resource",
+-        template,
+-        {
+-          name: "Echo Message",
+-          description: "A simple echo resource that returns a message",
+-          mimeType: "application/json",
+-          querySchema: z.object({
+-            /*...*/
+-          }),
+-          examples: [
+-            /*...*/
+-          ],
+-        },
+-        async (uri, params) => {
+-          // Resource handler implementation
+-          return await ErrorHandler.tryCatch(/*...*/);
+-        }
+-      );
+-    }
+-  );
+-};
+-```
+-
+-### Tool Registration (src/mcp-server/tools/echoTool/index.ts)
+-
+-```typescript
+-// Register an echo tool that processes and formats messages
+-export const registerEchoTool = async (server: McpServer): Promise<void> => {
+-  return registerTool(
+-    server,
+-    { name: "echo_message" },
+-    async (server, toolLogger: ChildLogger) => {
+-      // Register the tool with simplified SDK pattern
+-      server.tool(
+-        "echo_message",
+-        {
+-          message: z
+-            .string()
+-            .min(1)
+-            .max(1000)
+-            .describe("The message to echo back (1-1000 characters)"),
+-          mode: z
+-            .enum(ECHO_MODES)
+-            .optional()
+-            .default("standard")
+-            .describe(
+-              "How to format the echoed message: standard (as-is), uppercase, or lowercase"
+-            ),
+-          repeat: z.number().int().min(1).max(10).optional().default(1),
+-          timestamp: z.boolean().optional().default(true),
+-        },
+-        async (params) => {
+-          return await ErrorHandler.tryCatch(
+-            async () => {
+-              const response = processEchoMessage(params);
+-              return {
+-                content: [
+-                  { type: "text", text: JSON.stringify(response, null, 2) },
+-                ],
+-              };
+-            },
+-            {
+-              /* error handling options */
+-            }
+-          );
+-        }
+-      );
+-    }
+-  );
+-};
+-```
+-
+-### Registration Helper (src/mcp-server/utils/registrationHelper.ts)
+-
+-```typescript
+-// Use these helpers for consistent registration pattern
+-import { registerTool } from "../../utils/registrationHelper.js";
+-import { registerResource } from "../../utils/registrationHelper.js";
+-
+-// Example usage:
+-registerTool(server, { name: "your_tool_name" }, async (server, logger) => {
+-  // Tool registration logic
+-});
+-```
+-
+-## 🔒 Error Handling
+-
+-### Using ErrorHandler (src/utils/errorHandler.ts)
+-
+-```typescript
+-import { ErrorHandler } from "./utils/errorHandler.js";
+-
+-// Try/catch pattern
+-const result = await ErrorHandler.tryCatch(
+-  async () => {
+-    // Operation that might fail
+-    return await someAsyncOperation();
+-  },
+-  {
+-    operation: "operation name",
+-    context: { additionalContext: "value" },
+-    input: { param1: "value1" },
+-    errorCode: BaseErrorCode.INTERNAL_ERROR,
+-    errorMapper: (error) =>
+-      new McpError(
+-        BaseErrorCode.VALIDATION_ERROR,
+-        `Custom error message: ${
+-          error instanceof Error ? error.message : "Unknown error"
+-        }`
+-      ),
+-  }
+-);
+-
+-// If result instanceof Error, handle the error
+-```
+-
+-### Custom Errors (src/types-global/errors.ts)
+-
+-```typescript
+-import { BaseErrorCode, McpError } from "./types-global/errors.js";
+-
+-throw new McpError(BaseErrorCode.INVALID_REQUEST, "Error message");
+-```
+-
+-## ⚙️ Configuration
+-
+-### Environment Config (src/config/envConfig.ts)
+-
+-```typescript
+-import { envConfig } from "./config/envConfig.js";
+-
+-// Access environment variables
+-const environment = envConfig().environment;
+-const logLevel = envConfig().logLevel;
+-const rateLimitSettings = {
+-  windowMs: envConfig().rateLimit.windowMs || 60000,
+-  maxRequests: envConfig().rateLimit.maxRequests || 100,
+-};
+-```
+-
+-### MCP Server Config (src/config/mcpConfig.ts)
+-
+-```typescript
+-import { enabledMcpServers } from "./config/mcpConfig.js";
+-
+-// Get configured MCP servers
+-const mcpServers = enabledMcpServers();
+-```
+-
+-## 📝 Logging
+-
+-### Using Logger (src/utils/logger.ts)
+-
+-```typescript
+-import { logger } from "./utils/logger.js";
+-
+-// Basic logging
+-logger.info("Information message", { context: "value" });
+-logger.error("Error message", { error: errorObj });
+-
+-// Child loggers for components
+-const serverLogger = logger.createChildLogger({
+-  service: "MCPServer",
+-  serverId: idGenerator.generateRandomString(8),
+-  environment: envConfig().environment,
+-});
+-
+-// Component-specific logger
+-const toolLogger = logger.createChildLogger({
+-  module: "EchoTool",
+-  operation: "registration",
+-});
+-
+-toolLogger.debug("Debug message");
+-```
+-
+-## 🛡️ Security
+-
+-### Input Sanitization (src/utils/security.ts)
+-
+-```typescript
+-import { sanitizeInput } from "./utils/security.js";
+-
+-// Sanitize user inputs
+-const safeName = sanitizeInput.string(name);
+-const safePath = sanitizeInput.path(pkgPath);
+-const safeHtml = sanitizeInput.html(userHtml);
+-```
+-
+-### Request Context (src/utils/requestContext.ts)
+-
+-```typescript
+-import { createRequestContext } from "./utils/security.js";
+-
+-// Create context for operation tracking
+-const context = createRequestContext({
+-  operation: "OperationName",
+-  userId: "user-id",
+-});
+-```
+-
+-## 🔄 Process Management
+-
+-### Spawning MCP Servers (src/index.ts)
+-
+-```typescript
+-// Load configured MCP servers
+-const mcpServers = enabledMcpServers();
+-
+-// Spawn child processes
+-const childProc = spawn(serverConfig.command, serverConfig.args, {
+-  env: { ...process.env, ...serverConfig.env },
+-  stdio: ["pipe", "pipe", "pipe"],
+-});
+-
+-// Handle process events
+-childProc.stdout?.on("data", (data: Buffer) => {
+-  const output = data.toString().trim();
+-  if (output) {
+-    processLogger.debug(`stdout:`, { output: output.substring(0, 500) });
+-  }
+-});
+-
+-childProc.on("exit", (code: number | null, signal: string | null) => {
+-  // Handle process exit
+-});
+-```
+-
+-### Graceful Shutdown (src/index.ts)
+-
+-```typescript
+-// Register signal handlers
+-process.on("SIGTERM", () => shutdown("SIGTERM"));
+-process.on("SIGINT", () => shutdown("SIGINT"));
+-
+-// Implement shutdown function
+-const shutdown = async (signal: string) => {
+-  // Close MCP servers
+-  if (mcpServerProcesses.size > 0) {
+-    await shutdownMcpServers();
+-  }
+-
+-  // Close main server
+-  if (server) {
+-    await server.close();
+-  }
+-
+-  process.exit(0);
+-};
+-```
+-
+-## 🧩 MCP SDK Integration
+-
+-### SDK Dependencies (package.json)
+-
+-- `@modelcontextprotocol/sdk`: Main MCP SDK for server/client implementation
+-- Version used: ^1.7.0
+-- Key schemas: `ListResourcesRequestSchema`, `ReadResourceRequestSchema`, etc.
+-
+-### Schema Types (from @modelcontextprotocol/sdk/types.js)
+-
+-```typescript
+-import {
+-  CallToolRequestSchema,
+-  ListResourcesRequestSchema,
+-  ReadResourceRequestSchema,
+-} from "@modelcontextprotocol/sdk/types.js";
+-```
+-
+-### Input Validation with Zod
+-
+-```typescript
+-// Define input schema with zod
+-{
+-  message: z.string().min(1).max(1000).describe(
+-    'The message to echo back (1-1000 characters)'
+-  ),
+-  mode: z.enum(['standard', 'uppercase', 'lowercase']).optional().default('standard')
+-}
+-```
+diff --git a/.env.example b/.env.example
+index 79ee738..b56b882 100644
+--- a/.env.example
++++ b/.env.example
+@@ -2,17 +2,16 @@
+ 
+ # General server settings
+ NODE_ENV=development
+-LOG_LEVEL=info
+-LOG_FILE_DIR=/path/to/your/logs
++LOG_LEVEL=debug
++LOG_FILE_DIR=/path/to/logs
+ 
+ # Rate limiting
+ RATE_LIMIT_WINDOW_MS=60000
+ RATE_LIMIT_MAX_REQUESTS=100
+ 
+ # Ntfy configuration
+-NTFY_API_KEY=your-ntfy-api-key
++NTFY_API_KEY=your_api_key_here
+ NTFY_BASE_URL=https://ntfy.sh
+-NTFY_TOPIC=ATLAS # or any other topic you want to use
+-NTFY_REQUEST_TIMEOUT=5000
++NTFY_DEFAULT_TOPIC=ATLAS
+ NTFY_MAX_RETRIES=3
+ NTFY_MAX_MESSAGE_SIZE=4096
+\ No newline at end of file
+diff --git a/.gitignore b/.gitignore
+index bc7fb7b..586e842 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,61 +1,9 @@
+-# Operating System Files
+-.DS_Store
+-.DS_Store?
+-._*
+-.Spotlight-V100
+-.Trashes
+-ehthumbs.db
+-Thumbs.db
+-
+-# IDE and Editor Files
+-.idea/
+-.vscode/
+-*.swp
+-*.swo
+-*~
+-*.sublime-workspace
+-*.sublime-project
+-
+-# TypeScript
+-*.tsbuildinfo
+-.tscache/
+-*.js.map
+-*.tgz
+-.npm
+-.eslintcache
+-.rollup.cache
+-*.mjs.map
+-*.cjs.map
+-*.d.ts.map
+-*.d.ts
+-!*.d.ts.template
+-.pnp.js
+-.pnp.cjs
+-.pnp.mjs
+-.pnp.json
+-.pnp.ts
+-
+-# Demo and Example Directories
+-demo/
+-demos/
+-example/
+-examples/
+-samples/
+-.sample-env
+-sample.*
+-!sample.template.*
+-
+-# Node.js
+-node_modules/
+-npm-debug.log*
+-yarn-debug.log*
+-yarn-error.log*
+-.pnpm-debug.log*
++# Environment and secrets
+ .env
+-.env.local
+-.env.development.local
+-.env.test.local
+-.env.production.local
++.env.*
++!.env.example
++.venv/
++.venv3/
+ 
+ # Python
+ __pycache__/
+@@ -78,89 +26,57 @@ wheels/
+ *.egg-info/
+ .installed.cfg
+ *.egg
+-.pytest_cache/
+-.coverage
+-htmlcov/
+-.tox/
+-.venv
++MANIFEST
++.python-version
+ venv/
++env/
+ ENV/
+ 
+-# Java
+-*.class
+-*.log
+-*.jar
+-*.war
+-*.nar
+-*.ear
+-*.zip
+-*.tar.gz
+-*.rar
+-hs_err_pid*
+-target/
+-.gradle/
+-build/
+-
+-# Ruby
+-*.gem
+-*.rbc
+-/.config
+-/coverage/
+-/InstalledFiles
+-/pkg/
+-/spec/reports/
+-/spec/examples.txt
+-/test/tmp/
+-/test/version_tmp/
+-/tmp/
+-.byebug_history
+-
+-# Compiled Files
+-*.com
+-*.class
+-*.dll
+-*.exe
+-*.o
+-*.so
++# IDE
++.idea/
++.vscode/
++*.swp
++*.swo
++.DS_Store
+ 
+-# Package Files
+-*.7z
+-*.dmg
+-*.gz
+-*.iso
+-*.rar
+-*.tar
+-*.zip
++# Project specific
++logs/
++output/
++data/*
++!data/.gitkeep
+ 
+-# Logs and Databases
++# LaTeX
++*.aux
++*.lof
+ *.log
+-*.sql
+-*.sqlite
+-*.sqlite3
+-
+-# Build and Distribution
+-dist/
+-build/
+-out/
+-
+-# Testing
+-coverage/
+-.nyc_output/
+-
+-# Cache
+-.cache/
+-.parcel-cache/
++*.lot
++*.fls
++*.out
++*.toc
++*.fmt
++*.fot
++*.cb
++*.cb2
++.*.lb
++*.dvi
++*.xdv
++*-converted-to.*
++*.pdf
++*.fdb_latexmk
++*.synctex
++*.synctex(busy)
++*.synctex.gz
++*.synctex.gz(busy)
++*.pdfsync
++latex.out/
++node_modules/
+ 
+ # Misc
+-.DS_Store
+-.env.local
+-.env.development.local
+-.env.test.local
+-.env.production.local
+-*.bak
+-*.swp
+-*.swo
+-*~
+-.history/
+-*repomix*
+-mcp-servers.json
++repomix/
++repomix-output.txt
++repomix-output.xml
++repomix-output.json
++logs/
++ideas/
++backups/
++atlas-backups/
+\ No newline at end of file
+diff --git a/package-lock.json b/package-lock.json
+index 4f5d178..b29d06b 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,19 +1,20 @@
+ {
+-  "name": "mcp-ts-template",
++  "name": "ntfy-mcp-server",
+   "version": "1.0.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+-      "name": "mcp-ts-template",
++      "name": "ntfy-mcp-server",
+       "version": "1.0.0",
+       "license": "Apache-2.0",
+       "dependencies": {
+-        "@modelcontextprotocol/sdk": "^1.7.0",
+-        "@types/node": "^22.13.13",
++        "@modelcontextprotocol/sdk": "^1.8.0",
++        "@types/node": "^22.13.14",
+         "@types/sanitize-html": "^2.13.0",
+-        "@types/validator": "^13.12.2",
++        "@types/validator": "^13.12.3",
+         "@types/xss-filters": "^1.2.0",
++        "dotenv": "^16.4.7",
+         "path-normalize": "^6.0.13",
+         "sanitize-html": "^2.15.0",
+         "ts-node": "^10.9.2",
+@@ -83,13 +84,14 @@
+       }
+     },
+     "node_modules/@modelcontextprotocol/sdk": {
+-      "version": "1.7.0",
+-      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/sdk/-/sdk-1.7.0.tgz",
+-      "integrity": "sha512-IYPe/FLpvF3IZrd/f5p5ffmWhMc3aEMuM2wGJASDqC2Ge7qatVCdbfPx3n/5xFeb19xN0j/911M2AaFuircsWA==",
++      "version": "1.8.0",
++      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/sdk/-/sdk-1.8.0.tgz",
++      "integrity": "sha512-e06W7SwrontJDHwCawNO5SGxG+nU9AAx+jpHHZqGl/WrDBdWOpvirC+s58VpJTB5QemI4jTRcjWT4Pt3Q1NPQQ==",
+       "license": "MIT",
+       "dependencies": {
+         "content-type": "^1.0.5",
+         "cors": "^2.8.5",
++        "cross-spawn": "^7.0.3",
+         "eventsource": "^3.0.2",
+         "express": "^5.0.1",
+         "express-rate-limit": "^7.5.0",
+@@ -127,9 +129,9 @@
+       "license": "MIT"
+     },
+     "node_modules/@types/node": {
+-      "version": "22.13.13",
+-      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.13.13.tgz",
+-      "integrity": "sha512-ClsL5nMwKaBRwPcCvH8E7+nU4GxHVx1axNvMZTFHMEfNI7oahimt26P5zjVCRrjiIWj6YFXfE1v3dEp94wLcGQ==",
++      "version": "22.13.14",
++      "resolved": "https://registry.npmjs.org/@types/node/-/node-22.13.14.tgz",
++      "integrity": "sha512-Zs/Ollc1SJ8nKUAgc7ivOEdIBM8JAKgrqqUYi2J997JuKO7/tpQC+WCetQ1sypiKCQWHdvdg9wBNpUPEWZae7w==",
+       "license": "MIT",
+       "dependencies": {
+         "undici-types": "~6.20.0"
+@@ -157,9 +159,9 @@
+       "license": "MIT"
+     },
+     "node_modules/@types/validator": {
+-      "version": "13.12.2",
+-      "resolved": "https://registry.npmjs.org/@types/validator/-/validator-13.12.2.tgz",
+-      "integrity": "sha512-6SlHBzUW8Jhf3liqrGGXyTJSIFe4nqlJ5A5KaMZ2l/vbM3Wh3KSybots/wfWVzNLK4D1NZluDlSQIbIEPx6oyA==",
++      "version": "13.12.3",
++      "resolved": "https://registry.npmjs.org/@types/validator/-/validator-13.12.3.tgz",
++      "integrity": "sha512-2ipwZ2NydGQJImne+FhNdhgRM37e9lCev99KnqkbFHd94Xn/mErARWI1RSLem1QA19ch5kOhzIZd7e8CA2FI8g==",
+       "license": "MIT"
+     },
+     "node_modules/@types/xss-filters": {
+@@ -416,6 +418,20 @@
+       "integrity": "sha512-dcKFX3jn0MpIaXjisoRvexIJVEKzaq7z2rZKxf+MSr9TkdmHmsU4m2lcLojrj/FHl8mk5VxMmYA+ftRkP/3oKQ==",
+       "license": "MIT"
+     },
++    "node_modules/cross-spawn": {
++      "version": "7.0.6",
++      "resolved": "https://registry.npmjs.org/cross-spawn/-/cross-spawn-7.0.6.tgz",
++      "integrity": "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==",
++      "license": "MIT",
++      "dependencies": {
++        "path-key": "^3.1.0",
++        "shebang-command": "^2.0.0",
++        "which": "^2.0.1"
++      },
++      "engines": {
++        "node": ">= 8"
++      }
++    },
+     "node_modules/debug": {
+       "version": "4.3.6",
+       "resolved": "https://registry.npmjs.org/debug/-/debug-4.3.6.tgz",
+@@ -525,6 +541,18 @@
+         "url": "https://github.com/fb55/domutils?sponsor=1"
+       }
+     },
++    "node_modules/dotenv": {
++      "version": "16.4.7",
++      "resolved": "https://registry.npmjs.org/dotenv/-/dotenv-16.4.7.tgz",
++      "integrity": "sha512-47qPchRCykZC03FhkYAhrvwU4xDBFIj1QPqaarj6mdM/hgUzfPHcpkHJOn3mJAufFeeAxAzeGsr5X0M4k6fLZQ==",
++      "license": "BSD-2-Clause",
++      "engines": {
++        "node": ">=12"
++      },
++      "funding": {
++        "url": "https://dotenvx.com"
++      }
++    },
+     "node_modules/dunder-proto": {
+       "version": "1.0.1",
+       "resolved": "https://registry.npmjs.org/dunder-proto/-/dunder-proto-1.0.1.tgz",
+@@ -964,6 +992,12 @@
+         "url": "https://github.com/sponsors/sindresorhus"
+       }
+     },
++    "node_modules/isexe": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/isexe/-/isexe-2.0.0.tgz",
++      "integrity": "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==",
++      "license": "ISC"
++    },
+     "node_modules/kuler": {
+       "version": "2.0.0",
+       "resolved": "https://registry.npmjs.org/kuler/-/kuler-2.0.0.tgz",
+@@ -1170,6 +1204,15 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/path-key": {
++      "version": "3.1.1",
++      "resolved": "https://registry.npmjs.org/path-key/-/path-key-3.1.1.tgz",
++      "integrity": "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=8"
++      }
++    },
+     "node_modules/path-normalize": {
+       "version": "6.0.13",
+       "resolved": "https://registry.npmjs.org/path-normalize/-/path-normalize-6.0.13.tgz",
+@@ -1452,6 +1495,27 @@
+       "integrity": "sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==",
+       "license": "ISC"
+     },
++    "node_modules/shebang-command": {
++      "version": "2.0.0",
++      "resolved": "https://registry.npmjs.org/shebang-command/-/shebang-command-2.0.0.tgz",
++      "integrity": "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==",
++      "license": "MIT",
++      "dependencies": {
++        "shebang-regex": "^3.0.0"
++      },
++      "engines": {
++        "node": ">=8"
++      }
++    },
++    "node_modules/shebang-regex": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/shebang-regex/-/shebang-regex-3.0.0.tgz",
++      "integrity": "sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=8"
++      }
++    },
+     "node_modules/side-channel": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/side-channel/-/side-channel-1.1.0.tgz",
+@@ -1717,6 +1781,21 @@
+         "node": ">= 0.8"
+       }
+     },
++    "node_modules/which": {
++      "version": "2.0.2",
++      "resolved": "https://registry.npmjs.org/which/-/which-2.0.2.tgz",
++      "integrity": "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==",
++      "license": "ISC",
++      "dependencies": {
++        "isexe": "^2.0.0"
++      },
++      "bin": {
++        "node-which": "bin/node-which"
++      },
++      "engines": {
++        "node": ">= 8"
++      }
++    },
+     "node_modules/winston": {
+       "version": "3.17.0",
+       "resolved": "https://registry.npmjs.org/winston/-/winston-3.17.0.tgz",
+diff --git a/package.json b/package.json
+index 8dd2d95..d9fdd19 100644
+--- a/package.json
++++ b/package.json
+@@ -1,8 +1,9 @@
+ {
+-  "name": "mcp-ts-template",
++  "name": "ntfy-mcp-server",
+   "version": "1.0.0",
+   "description": "A beginner-friendly foundation for building Model Context Protocol (MCP) servers (and in the future also clients) with TypeScript. This template provides a comprehensive starting point with production-ready utilities, well-structured code, and working examples for building an MCP server. Copy this repo to kickstart your own MCP server and set your **vibe code** session up for success!",
+-  "main": "dist/src/index.js",
++  "main": "dist/index.js",
++  "type": "module",
+   "files": [
+     "dist"
+   ],
+@@ -11,11 +12,16 @@
+     "clean": "ts-node scripts/clean.ts",
+     "rebuild": "npm run clean && npm run build",
+     "tree": "ts-node scripts/tree.ts",
+-    "start": "ts-node dist/src/index.js"
++    "start": "node dist/index.js",
++    "watch": "tail -f logs/combined.log"
+   },
+   "dependencies": {
+-    "@modelcontextprotocol/sdk": "^1.7.0",
+-    "@types/node": "^22.13.13",
++    "@modelcontextprotocol/sdk": "^1.8.0",
++    "@types/node": "^22.13.14",
++    "@types/sanitize-html": "^2.13.0",
++    "@types/validator": "^13.12.3",
++    "@types/xss-filters": "^1.2.0",
++    "dotenv": "^16.4.7",
+     "path-normalize": "^6.0.13",
+     "sanitize-html": "^2.15.0",
+     "ts-node": "^10.9.2",
+@@ -24,10 +30,7 @@
+     "validator": "^13.15.0",
+     "winston": "^3.17.0",
+     "winston-daily-rotate-file": "^5.0.0",
+-    "xss-filters": "^1.2.7",
+-    "@types/sanitize-html": "^2.13.0",
+-    "@types/validator": "^13.12.2",
+-    "@types/xss-filters": "^1.2.0"
++    "xss-filters": "^1.2.7"
+   },
+   "keywords": [
+     "typescript",
+diff --git a/scripts/clean.ts b/scripts/clean.ts
+index 4b38d5b..16ed738 100644
+--- a/scripts/clean.ts
++++ b/scripts/clean.ts
+@@ -36,23 +36,27 @@ import { join } from 'path';
+ /**
+  * Standardized error category classification
+  */
+-enum ErrorCategoryType {
+-  CATEGORY_VALIDATION = 'VALIDATION',
+-  CATEGORY_FILESYSTEM = 'FILESYSTEM',
+-  CATEGORY_SYSTEM = 'SYSTEM',
+-  CATEGORY_UNKNOWN = 'UNKNOWN'
+-}
++const ErrorCategoryType = {
++  CATEGORY_VALIDATION: 'VALIDATION',
++  CATEGORY_FILESYSTEM: 'FILESYSTEM',
++  CATEGORY_SYSTEM: 'SYSTEM',
++  CATEGORY_UNKNOWN: 'UNKNOWN'
++} as const;
++
++type ErrorCategoryType = typeof ErrorCategoryType[keyof typeof ErrorCategoryType];
+ 
+ /**
+  * Error severity classification
+  */
+-enum ErrorSeverityLevel {
+-  SEVERITY_DEBUG = 0,
+-  SEVERITY_INFO = 1,
+-  SEVERITY_WARN = 2,
+-  SEVERITY_ERROR = 3,
+-  SEVERITY_FATAL = 4
+-}
++const ErrorSeverityLevel = {
++  SEVERITY_DEBUG: 0,
++  SEVERITY_INFO: 1,
++  SEVERITY_WARN: 2,
++  SEVERITY_ERROR: 3,
++  SEVERITY_FATAL: 4
++} as const;
++
++type ErrorSeverityLevel = typeof ErrorSeverityLevel[keyof typeof ErrorSeverityLevel];
+ 
+ /**
+  * Standardized error structure for consistent error handling
+@@ -374,4 +378,4 @@ async function cleanProjectDirectories(): Promise<void> {
+ // -----------------------------------
+ 
+ // Execute the main operation function
+-cleanProjectDirectories();
+\ No newline at end of file
++cleanProjectDirectories();
+diff --git a/src/config/envConfig.ts b/src/config/envConfig.ts
+deleted file mode 100644
+index e52f5a9..0000000
+--- a/src/config/envConfig.ts
++++ /dev/null
+@@ -1,143 +0,0 @@
+-/**
+- * Environment configuration module
+- * 
+- * Loads and validates environment variables with proper defaults
+- * and type conversion. Uses a lazy-loading pattern to avoid
+- * loading configuration at import time.
+- */
+-import { logger } from '../utils/logger.js';
+-import { parseNumericEnv, parseBooleanEnv, parseStringEnv, validators } from './parsers.js';
+-
+-// Create a module-level logger for environment configuration
+-const envLogger = logger.createChildLogger({
+-  module: 'EnvConfig'
+-});
+-
+-/**
+- * Environment Configuration Interface
+- */
+-export interface EnvironmentConfig {
+-  // Server configuration
+-  logLevel: string;
+-  environment: string;
+-  
+-  // Security settings
+-  security: {
+-    // Can be extended with security settings in the future
+-  };
+-  
+-  // Rate limiting
+-  rateLimit: {
+-    windowMs: number;
+-    maxRequests: number;
+-  };
+-  
+-  // Ntfy configuration
+-  ntfy: {
+-    apiKey: string;
+-    baseUrl: string;
+-    defaultTopic: string;
+-    requestTimeout: number;
+-    maxRetries: number;
+-    maxMessageSize: number;
+-  };
+-}
+-
+-/**
+- * Handles loading and parsing of environment variables for the application
+- * with validation and default values.
+- */
+-function loadEnvConfig(): EnvironmentConfig {
+-  // Log the environment we're loading
+-  envLogger.info(`Loading environment configuration`, {
+-    nodeEnv: process.env.NODE_ENV || 'development',
+-    logLevel: process.env.LOG_LEVEL || 'info'
+-  });
+-
+-  const config: EnvironmentConfig = {
+-    // Server configuration
+-    logLevel: process.env.LOG_LEVEL || "info",
+-    environment: process.env.NODE_ENV || "development",
+-    
+-    // Security settings
+-    security: {
+-      // Can be extended with non-auth security settings in the future
+-    },
+-    
+-    // Rate limiting
+-    rateLimit: {
+-      windowMs: parseNumericEnv('RATE_LIMIT_WINDOW_MS', 60000, 1000, 3600000), // 1 minute default, 1s min, 1h max
+-      maxRequests: parseNumericEnv('RATE_LIMIT_MAX_REQUESTS', 100, 1, 10000) // 100 requests per minute default, 1-10000 range
+-    },
+-    
+-    // Ntfy configuration
+-    ntfy: {
+-      apiKey: process.env.NTFY_API_KEY || '',
+-      baseUrl: parseStringEnv('NTFY_BASE_URL', 'https://ntfy.sh', validators.url),
+-      defaultTopic: parseStringEnv('NTFY_TOPIC', '', validators.ntfyTopic),
+-      requestTimeout: parseNumericEnv('NTFY_REQUEST_TIMEOUT', 5000, 1000, 60000), // 5s default, 1-60s range
+-      maxRetries: parseNumericEnv('NTFY_MAX_RETRIES', 3, 0, 10), // 3 retries default, 0-10 range
+-      maxMessageSize: parseNumericEnv('NTFY_MAX_MESSAGE_SIZE', 4096, 1, 10000) // 4KB default, 1B-10KB range
+-    }
+-  };
+-
+-  // Log the loaded configuration
+-  envLogger.info(`Environment configuration loaded`, {
+-    environment: config.environment,
+-    logLevel: config.logLevel,
+-    rateLimitWindowMs: config.rateLimit.windowMs,
+-    rateLimitMaxRequests: config.rateLimit.maxRequests
+-  });
+-  
+-  // Log ntfy config (but mask sensitive data)
+-  envLogger.info(`Ntfy configuration loaded`, {
+-    baseUrl: config.ntfy.baseUrl,
+-    defaultTopic: config.ntfy.defaultTopic ? config.ntfy.defaultTopic : '(not set)',
+-    apiKeyPresent: config.ntfy.apiKey ? '✓' : '✗',
+-    requestTimeout: `${config.ntfy.requestTimeout}ms`,
+-    maxRetries: config.ntfy.maxRetries,
+-    maxMessageSize: `${config.ntfy.maxMessageSize} bytes`
+-  });
+-
+-  return config;
+-}
+-
+-// Cache the configuration once loaded
+-let cachedEnvConfig: EnvironmentConfig | null = null;
+-
+-/**
+- * Get the environment configuration, loading it on first call
+- * 
+- * This ensures that we only load the configuration when it's actually needed,
+- * not just when the module is imported.
+- * 
+- * @returns The environment configuration
+- */
+-export const envConfig = (): EnvironmentConfig => {
+-  if (!cachedEnvConfig) {
+-    cachedEnvConfig = loadEnvConfig();
+-  }
+-  return cachedEnvConfig;
+-};
+-
+-/**
+- * Validates the configuration at startup
+- * Throws an error if any validation fails
+- */
+-export const validateConfig = (): boolean => {
+-  const config = envConfig();
+-  
+-  // Add any additional validation logic here
+-  // Currently the validation happens during loading,
+-  // but this hook is available for more complex validation
+-  
+-  envLogger.info('Configuration validation passed');
+-  return true;
+-};
+-
+-// Helper functions for direct property access
+-export const getEnvironment = (): string => envConfig().environment;
+-export const getLogLevel = (): string => envConfig().logLevel;
+-export const getRateLimit = () => envConfig().rateLimit;
+-export const getSecurity = () => envConfig().security;
+-export const getNtfyConfig = () => envConfig().ntfy;
+diff --git a/src/config/index.ts b/src/config/index.ts
+index 3c2f826..803f6a5 100644
+--- a/src/config/index.ts
++++ b/src/config/index.ts
+@@ -1,206 +1,124 @@
+-/**
+- * Configuration Index Module
+- * 
+- * This module serves as the central entrypoint for all configuration-related
+- * functionality. It provides a unified API for accessing configuration values
+- * from various sources (environment variables, package.json).
+- */
+-import { promises as fs } from "fs";
+-import path from "path";
+-import { BaseErrorCode, McpError } from "../types-global/errors.js";
+-import { ErrorHandler } from "../utils/errorHandler.js";
+-import { logger } from "../utils/logger.js";
+-import { sanitizeInput } from "../utils/security.js";
+-import { envConfig, EnvironmentConfig, getEnvironment, getLogLevel, getNtfyConfig, getRateLimit, getSecurity } from './envConfig.js';
++import dotenv from 'dotenv';
++import path from 'path';
++import { createRequestContext } from '../utils/requestContext.js';
++import { logger } from '../utils/logger.js';
+ 
+-// Create a module-level logger for configuration
+-const configLogger = logger.createChildLogger({
+-  module: 'ConfigManager'
+-});
++// Initialize environment variables from .env file
++dotenv.config();
+ 
+-// Default package info in case we can't load it
+-const DEFAULT_PACKAGE_INFO = {
+-  name: "ntfy-mcp-server",
+-  version: "0.0.0"
+-};
+-
+-// Maximum file size for package.json (5MB) to prevent potential DoS
+-const MAX_FILE_SIZE = 5 * 1024 * 1024;
++// Create a request context for logging
++const configContext = createRequestContext({
++  operation: 'ConfigInit',
++  component: 'Config',
++});
+ 
+-/**
+- * Unified application configuration interface
+- */
+-export interface AppConfig {
+-  // Server info
+-  serverName: string;
+-  serverVersion: string;
+-  
+-  // Environment configuration 
+-  environment: string;
+-  logLevel: string;
+-  rateLimit: {
+-    windowMs: number;
+-    maxRequests: number;
+-  };
+-  security: Record<string, any>;
+-  
+-  // Ntfy configuration
+-  ntfy: {
+-    apiKey: string;
+-    baseUrl: string;
+-    defaultTopic: string;
+-    requestTimeout: number;
+-    maxRetries: number;
+-    maxMessageSize: number;
+-  };
+-  
+-  // Metadata
+-  configLoadTime: string;
+-}
++// Create a logger specific to config
++const configLogger = logger.createChildLogger({
++  module: 'Config',
++  service: 'Config',
++  requestId: configContext.requestId,
++});
+ 
+ /**
+- * Load and parse the package.json file to get application information
+- * 
+- * @returns Promise resolving to object containing name and version from package.json
++ * Environment validation and parsing utilities
+  */
+-async function loadPackageInfo(): Promise<{ name: string; version: string }> {
+-  try {
+-    // Get package info
+-    const pkgPath = path.resolve(process.cwd(), 'package.json');
+-    const sanitizedPath = sanitizeInput.path(pkgPath);
+-    
+-    configLogger.debug(`Loading package info from ${sanitizedPath}`);
+-    
+-    // Get file stats to check size before reading
+-    const stats = await fs.stat(sanitizedPath);
+-    
+-    // Check file size to prevent DoS attacks
+-    if (stats.size > MAX_FILE_SIZE) {
+-      throw new McpError(
+-        BaseErrorCode.VALIDATION_ERROR,
+-        `package.json file is too large (${stats.size} bytes)`,
+-        { path: sanitizedPath, maxSize: MAX_FILE_SIZE }
+-      );
+-    }
+-    
+-    // Use async file operations
+-    const pkgContent = await fs.readFile(sanitizedPath, 'utf-8');
+-    const pkg = JSON.parse(pkgContent);
+-    
+-    // Validate expected fields
+-    if (!pkg.name || typeof pkg.name !== 'string') {
+-      throw new McpError(
+-        BaseErrorCode.VALIDATION_ERROR,
+-        'Invalid package.json: missing or invalid name field',
+-        { path: sanitizedPath }
+-      );
+-    }
++const parsers = {
++  /**
++   * Parse environment string to number with validation
++   * 
++   * @param value - String value from environment
++   * @param defaultValue - Default value to use if parsing fails
++   * @returns Parsed number value
++   */
++  number: (value: string | undefined, defaultValue: number): number => {
++    if (!value) return defaultValue;
+     
+-    if (!pkg.version || typeof pkg.version !== 'string') {
+-      throw new McpError(
+-        BaseErrorCode.VALIDATION_ERROR,
+-        'Invalid package.json: missing or invalid version field',
+-        { path: sanitizedPath }
+-      );
++    const parsed = parseInt(value, 10);
++    if (isNaN(parsed)) {
++      configLogger.warn(`Invalid number for environment variable, using default: ${defaultValue}`, {
++        value,
++        defaultValue
++      });
++      return defaultValue;
+     }
+     
+-    configLogger.info(`Loaded application info`, {
+-      name: pkg.name,
+-      version: pkg.version
+-    });
++    return parsed;
++  },
++  
++  /**
++   * Parse environment string to boolean
++   * 
++   * @param value - String value from environment
++   * @param defaultValue - Default value to use if parsing fails
++   * @returns Parsed boolean value
++   */
++  boolean: (value: string | undefined, defaultValue: boolean): boolean => {
++    if (!value) return defaultValue;
+     
+-    return {
+-      name: pkg.name,
+-      version: pkg.version
+-    };
+-  } catch (error) {
+-    // Log the error but don't rethrow
+-    ErrorHandler.handleError(error, {
+-      context: { path: path.resolve(process.cwd(), 'package.json') },
+-      operation: "loading package info"
+-    });
++    const normalized = value.toLowerCase().trim();
++    if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
++    if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+     
+-    configLogger.error(`Failed to load package.json, using default values`, {
+-      error: error instanceof Error ? error.message : String(error)
++    configLogger.warn(`Invalid boolean for environment variable, using default: ${defaultValue}`, {
++      value,
++      defaultValue
+     });
++    return defaultValue;
++  },
++  
++  /**
++   * Parse environment string to an array of strings
++   * 
++   * @param value - Comma-separated string value from environment
++   * @param defaultValue - Default value to use if parsing fails
++   * @returns Array of parsed string values
++   */
++  array: (value: string | undefined, defaultValue: string[] = []): string[] => {
++    if (!value) return defaultValue;
+     
+-    // Return default values
+-    return DEFAULT_PACKAGE_INFO;
+-  }
+-}
+-
+-// Cache for package info
+-let cachedPackageInfo: { name: string; version: string } | null = null;
+-
+-/**
+- * Get package info, loading it on first call
+- */
+-export async function getPackageInfo(): Promise<{ name: string; version: string }> {
+-  if (!cachedPackageInfo) {
+-    cachedPackageInfo = await loadPackageInfo();
++    return value.split(',').map(item => item.trim()).filter(Boolean);
+   }
+-  return cachedPackageInfo;
+-}
++};
+ 
+ /**
+- * Build the full application configuration object
+- * 
+- * This function lazy-loads all configuration components when called.
++ * Environment variable configuration
+  */
+-async function buildAppConfig(): Promise<AppConfig> {
+-  const packageInfo = await getPackageInfo();
+-  const env = envConfig();
++export const config = {
++  environment: process.env.NODE_ENV || 'development',
++  logLevel: process.env.LOG_LEVEL || 'info',
+   
+-  configLogger.info(`Building unified application configuration`, {
+-    environment: env.environment,
+-    packageName: packageInfo.name
+-  });
++  // HTTP server configuration
++  server: {
++    port: parsers.number(process.env.PORT, 3000),
++    host: process.env.HOST || 'localhost',
++  },
+   
+-  return {
+-    // Server info
+-    serverName: packageInfo.name,
+-    serverVersion: packageInfo.version,
+-    
+-    // Environment configuration
+-    environment: env.environment,
+-    logLevel: env.logLevel,
+-    rateLimit: env.rateLimit,
+-    security: env.security,
+-    
+-    // Ntfy configuration
+-    ntfy: env.ntfy,
+-    
+-    // Metadata
+-    configLoadTime: new Date().toISOString()
+-  };
+-}
+-
+-// Cache for config
+-let cachedAppConfig: AppConfig | null = null;
+-
+-/**
+- * Get the complete application configuration
+- * 
+- * @returns Promise resolving to the full application configuration
+- */
+-export async function getConfig(): Promise<AppConfig> {
+-  if (!cachedAppConfig) {
+-    cachedAppConfig = await buildAppConfig();
+-    
+-    // Log configuration summary
+-    configLogger.info(`Configuration loaded successfully`, {
+-      serverName: cachedAppConfig.serverName,
+-      version: cachedAppConfig.serverVersion,
+-      environment: cachedAppConfig.environment
+-    });
+-  }
+-  return cachedAppConfig;
+-}
+-
+-// Export types and functions from the sub-modules
+-export {
+-  // Environment config
+-  envConfig, getEnvironment, getLogLevel, getNtfyConfig, getRateLimit, getSecurity
++  // Rate limiting settings
++  rateLimit: {
++    windowMs: parsers.number(process.env.RATE_LIMIT_WINDOW_MS, 60000),
++    maxRequests: parsers.number(process.env.RATE_LIMIT_MAX_REQUESTS, 100),
++  },
++  
++  // Ntfy notification service configuration
++  ntfy: {
++    baseUrl: process.env.NTFY_BASE_URL || 'https://ntfy.sh',
++    defaultTopic: process.env.NTFY_DEFAULT_TOPIC || '',
++    apiKey: process.env.NTFY_API_KEY || '',
++    maxMessageSize: parsers.number(process.env.NTFY_MAX_MESSAGE_SIZE, 4096),
++    maxRetries: parsers.number(process.env.NTFY_MAX_RETRIES, 3),
++  },
+ };
+-export type { EnvironmentConfig };
+ 
++// Log the loaded configuration (excluding sensitive values)
++configLogger.info('Configuration loaded', {
++  environment: config.environment,
++  logLevel: config.logLevel,
++  server: config.server,
++  ntfy: {
++    baseUrl: config.ntfy.baseUrl,
++    defaultTopic: config.ntfy.defaultTopic || '(not set)',
++    hasApiKey: !!config.ntfy.apiKey,
++  },
++});
++
++export default config;
+diff --git a/src/config/parsers.ts b/src/config/parsers.ts
+deleted file mode 100644
+index 2b61330..0000000
+--- a/src/config/parsers.ts
++++ /dev/null
+@@ -1,212 +0,0 @@
+-/**
+- * Configuration value parsers
+- * 
+- * This module contains utility functions for parsing and validating
+- * environment variables with proper type conversion and validation.
+- */
+-import { BaseErrorCode, McpError } from '../types-global/errors.js';
+-import { ErrorHandler } from '../utils/errorHandler.js';
+-import { logger } from '../utils/logger.js';
+-import { sanitizeInput } from '../utils/security.js';
+-
+-// Create a module-level logger for environment configuration parsers
+-const parserLogger = logger.createChildLogger({
+-  module: 'ConfigParsers'
+-});
+-
+-/**
+- * Parse a numeric environment variable with validation
+- * 
+- * @param name - The name of the environment variable
+- * @param defaultValue - The default value if not set or invalid
+- * @param min - Optional minimum valid value
+- * @param max - Optional maximum valid value
+- * @returns The parsed numeric value
+- */
+-export function parseNumericEnv(
+-  name: string, 
+-  defaultValue: number, 
+-  min?: number, 
+-  max?: number
+-): number {
+-  const rawValue = process.env[name];
+-  
+-  if (rawValue === undefined) {
+-    parserLogger.debug(`Using default value for ${name}`, { defaultValue });
+-    return defaultValue;
+-  }
+-  
+-  try {
+-    // Sanitize and parse the value
+-    const sanitizedValue = sanitizeInput.string(rawValue);
+-    const parsedValue = parseFloat(sanitizedValue);
+-    
+-    if (isNaN(parsedValue)) {
+-      throw new McpError(
+-        BaseErrorCode.VALIDATION_ERROR,
+-        `Invalid numeric value for ${name}: ${sanitizedValue}`,
+-        { raw: sanitizedValue }
+-      );
+-    }
+-    
+-    // Apply bounds constraints if provided
+-    if (min !== undefined && parsedValue < min) {
+-      parserLogger.warn(`Value for ${name} is below minimum (${min}), using minimum`, { 
+-        parsed: parsedValue, min, raw: sanitizedValue 
+-      });
+-      return min;
+-    }
+-    
+-    if (max !== undefined && parsedValue > max) {
+-      parserLogger.warn(`Value for ${name} is above maximum (${max}), using maximum`, { 
+-        parsed: parsedValue, max, raw: sanitizedValue 
+-      });
+-      return max;
+-    }
+-    
+-    parserLogger.debug(`Parsed ${name} environment variable`, { value: parsedValue });
+-    return parsedValue;
+-  } catch (error) {
+-    ErrorHandler.handleError(error, {
+-      context: { envVar: name, rawValue },
+-      operation: `parsing environment variable ${name}`,
+-      errorCode: BaseErrorCode.VALIDATION_ERROR
+-    });
+-    
+-    parserLogger.warn(`Using default value for ${name} due to parsing error`, { defaultValue });
+-    return defaultValue;
+-  }
+-}
+-
+-/**
+- * Parse a boolean environment variable with validation
+- * 
+- * @param name - The name of the environment variable
+- * @param defaultValue - The default value if not set or invalid
+- * @returns The parsed boolean value
+- */
+-export function parseBooleanEnv(name: string, defaultValue: boolean): boolean {
+-  const rawValue = process.env[name];
+-  
+-  if (rawValue === undefined) {
+-    parserLogger.debug(`Using default value for ${name}`, { defaultValue });
+-    return defaultValue;
+-  }
+-  
+-  try {
+-    // Sanitize the input
+-    const sanitizedValue = sanitizeInput.string(rawValue).toLowerCase();
+-    
+-    // Allow for various truthy/falsy string representations
+-    if (['true', 'yes', '1', 'on'].includes(sanitizedValue)) {
+-      return true;
+-    }
+-    
+-    if (['false', 'no', '0', 'off'].includes(sanitizedValue)) {
+-      return false;
+-    }
+-    
+-    throw new McpError(
+-      BaseErrorCode.VALIDATION_ERROR,
+-      `Invalid boolean value for ${name}: ${sanitizedValue}`,
+-      { raw: sanitizedValue }
+-    );
+-  } catch (error) {
+-    ErrorHandler.handleError(error, {
+-      context: { envVar: name, rawValue },
+-      operation: `parsing environment variable ${name}`,
+-      errorCode: BaseErrorCode.VALIDATION_ERROR
+-    });
+-    
+-    parserLogger.warn(`Using default value for ${name} due to parsing error`, { defaultValue });
+-    return defaultValue;
+-  }
+-}
+-
+-/**
+- * Parses a string environment variable with optional validation
+- * 
+- * @param name - The environment variable name
+- * @param defaultValue - Default value if not set or invalid
+- * @param validator - Optional validation function
+- * @returns The validated string value
+- */
+-export function parseStringEnv(
+-  name: string,
+-  defaultValue: string,
+-  validator?: (value: string) => boolean
+-): string {
+-  const rawValue = process.env[name];
+-  
+-  if (rawValue === undefined) {
+-    parserLogger.debug(`Using default value for ${name}`, { 
+-      defaultValue: defaultValue ? '(set)' : '(empty)' 
+-    });
+-    return defaultValue;
+-  }
+-  
+-  try {
+-    // Sanitize the input
+-    const sanitizedValue = sanitizeInput.string(rawValue);
+-    
+-    // Validate if a validator was provided
+-    if (validator && !validator(sanitizedValue)) {
+-      throw new McpError(
+-        BaseErrorCode.VALIDATION_ERROR,
+-        `Invalid value for ${name}: ${sanitizedValue}`,
+-        { raw: sanitizedValue }
+-      );
+-    }
+-    
+-    return sanitizedValue;
+-  } catch (error) {
+-    ErrorHandler.handleError(error, {
+-      context: { envVar: name, rawValue },
+-      operation: `parsing environment variable ${name}`,
+-      errorCode: BaseErrorCode.VALIDATION_ERROR
+-    });
+-    
+-    parserLogger.warn(`Using default value for ${name} due to validation error`, { 
+-      defaultValue: defaultValue ? '(set)' : '(empty)' 
+-    });
+-    return defaultValue;
+-  }
+-}
+-
+-/**
+- * Common validators for config values
+- */
+-export const validators = {
+-  /**
+-   * Validate a ntfy topic string
+-   * 
+-   * @param topic - The topic string to validate
+-   * @returns true if valid, false otherwise
+-   */
+-  ntfyTopic: (topic: string): boolean => {
+-    // A valid topic should not be empty and shouldn't contain newlines
+-    if (!topic || topic.trim() === '' || /[\r\n]/.test(topic)) {
+-      return false;
+-    }
+-    return true;
+-  },
+-  
+-  /**
+-   * Validate a URL string
+-   * 
+-   * @param url - The URL string to validate
+-   * @returns true if valid, false otherwise
+-   */
+-  url: (url: string): boolean => {
+-    if (!url || url.trim() === '') {
+-      return false;
+-    }
+-    
+-    try {
+-      new URL(url);
+-      return true;
+-    } catch (e) {
+-      return false;
+-    }
+-  }
+-};
+diff --git a/src/index.ts b/src/index.ts
+index 593d023..b3cc656 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,85 +1,121 @@
+ #!/usr/bin/env node
+-
+ /**
+- * ntfy-mcp-server - Main entry point
++ * Ntfy MCP Server - Main Entry Point
+  * 
+- * This file initializes the MCP server and sets up signal handlers
+- * for graceful shutdown.
++ * This is the main entry point for the Ntfy MCP server. It initializes the 
++ * server, sets up signal handlers for graceful shutdown, and manages the
++ * application lifecycle.
+  */
+-
+-// Import dependencies
++import { config } from "./config/index.js";
+ import { createMcpServer } from "./mcp-server/server.js";
+ import { logger } from "./utils/logger.js";
++import { createRequestContext } from "./utils/requestContext.js";
+ 
+-// Track the server instance
+-let server: Awaited<ReturnType<typeof createMcpServer>> | undefined;
++// Create main application logger
++const appLogger = logger.createChildLogger({
++  module: 'NtfyMcpServer',
++  service: 'NtfyMcpServer',
++  component: 'Main',
++  environment: config.environment
++});
+ 
+ /**
+- * Gracefully shut down the server
++ * Graceful shutdown handler
++ * @param signal The signal that triggered the shutdown
+  */
+ const shutdown = async (signal: string): Promise<void> => {
++  appLogger.info(`Shutting down due to ${signal} signal...`);
++  
+   try {
+-    // Close the MCP server
+-    if (server) {
+-      logger.info(`Closing MCP server due to ${signal} signal...`);
+-      await server.close();
+-      logger.info("MCP server closed successfully");
++    if (mcpServer) {
++      appLogger.info('Closing MCP server...');
++      await mcpServer.close();
++      appLogger.info('MCP server closed successfully');
+     }
+-
+-    logger.info("Graceful shutdown completed");
++    
++    appLogger.info('Shutdown complete. Exiting process.');
+     process.exit(0);
+   } catch (error) {
+-    // Handle any errors during shutdown silently (no console output)
+-    logger.error("Critical error during shutdown", { 
++    appLogger.error('Error during shutdown', {
+       error: error instanceof Error ? error.message : String(error),
+-      stack: error instanceof Error ? error.stack : undefined
++      signal
+     });
+     process.exit(1);
+   }
+ };
+ 
++// Variable to hold server instance
++let mcpServer: Awaited<ReturnType<typeof createMcpServer>> | undefined;
++
+ /**
+- * Start the NTFY MCP server
++ * Main startup function
+  */
+ const start = async (): Promise<void> => {
++  // Create startup context
++  const startupContext = createRequestContext({
++    operation: "ServerStartup",
++    appName: "ntfy-mcp-server",
++    environment: config.environment,
++  });
++
++  appLogger.info("Starting ntfy-mcp-server...", {
++    environment: config.environment,
++    logLevel: config.logLevel,
++    requestId: startupContext.requestId
++  });
++
+   try {
+-    // Create and store server instance
+-    server = await createMcpServer();
++    // Validate ntfy configuration
++    const ntfyConfig = config.ntfy;
+     
+-    // Handle process signals for graceful shutdown
++    if (!ntfyConfig.baseUrl) {
++      appLogger.warn("Ntfy base URL not configured. Using default https://ntfy.sh");
++    }
++    
++    if (!ntfyConfig.defaultTopic) {
++      appLogger.warn("No default ntfy topic configured. Some functionality may be limited.");
++    }
++    
++    // Create main MCP server
++    appLogger.info("Creating MCP server...");
++    mcpServer = await createMcpServer();
++    appLogger.info("MCP server created and connected successfully");
++
++    // Register signal handlers for graceful shutdown
+     process.on("SIGTERM", () => shutdown("SIGTERM"));
+     process.on("SIGINT", () => shutdown("SIGINT"));
+-
+-    // Handle uncaught errors with silent logging
++    
++    // Handle uncaught exceptions
+     process.on("uncaughtException", (error) => {
+-      logger.error("Uncaught exception", { 
++      appLogger.error("Uncaught exception", {
+         error: error instanceof Error ? error.message : String(error),
+         stack: error instanceof Error ? error.stack : undefined
+       });
+-      shutdown("UNCAUGHT_EXCEPTION");
+     });
+-
+-    process.on("unhandledRejection", (reason: unknown) => {
+-      logger.error("Unhandled rejection", { 
++    
++    // Handle unhandled promise rejections
++    process.on("unhandledRejection", (reason) => {
++      appLogger.error("Unhandled promise rejection", {
+         reason: reason instanceof Error ? reason.message : String(reason),
+         stack: reason instanceof Error ? reason.stack : undefined
+       });
+-      shutdown("UNHANDLED_REJECTION");
+     });
++    
++    appLogger.info("Server startup complete. Ready to handle requests.");
+   } catch (error) {
+-    // Handle startup errors
+-    logger.error("Critical error during startup", { 
++    appLogger.error("Failed to start server", {
+       error: error instanceof Error ? error.message : String(error),
+       stack: error instanceof Error ? error.stack : undefined
+     });
++    
++    // Exit with non-zero code to indicate error
+     process.exit(1);
+   }
+ };
+ 
+-// Start the server
++// Start the application
+ start().catch((error) => {
+-  // Handle any uncaught errors from the start function silently
+-  logger.error("Fatal error in server startup", {
++  appLogger.error("Fatal error during startup", {
+     error: error instanceof Error ? error.message : String(error),
+     stack: error instanceof Error ? error.stack : undefined
+   });
+diff --git a/src/mcp-server/resources/echoResource/getEchoMessage.ts b/src/mcp-server/resources/echoResource/getEchoMessage.ts
+deleted file mode 100644
+index fb7d4dc..0000000
+--- a/src/mcp-server/resources/echoResource/getEchoMessage.ts
++++ /dev/null
+@@ -1,104 +0,0 @@
+-import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
+-import { ErrorHandler } from '../../../utils/errorHandler.js';
+-import { logger } from '../../../utils/logger.js';
+-import { createRequestContext, sanitizeInput } from '../../../utils/security.js';
+-import { EchoResourceQuery, EchoResourceQuerySchema, EchoResourceResponse } from './types.js';
+-
+-// Create resource-specific logger
+-const resourceLogger = logger.createChildLogger({
+-  service: 'EchoResource'
+-});
+-
+-export const getEchoMessage = async (uri: URL): Promise<EchoResourceResponse> => {
+-  // Create a request context with unique ID
+-  const requestContext = createRequestContext({ 
+-    operation: 'getEchoMessage',
+-    uri: uri.toString() 
+-  });
+-  const requestId = requestContext.requestId;
+-
+-  // Parse and validate query parameters
+-  const queryParams: Record<string, string> = {};
+-  uri.searchParams.forEach((value, key) => {
+-    // Sanitize input parameters
+-    queryParams[key] = sanitizeInput.string(value);
+-  });
+-
+-  resourceLogger.info("Echo resource request received", { 
+-    requestId,
+-    queryParams,
+-    uri: uri.href
+-  });
+-
+-  return ErrorHandler.tryCatch(async () => {
+-    let validatedQuery: EchoResourceQuery;
+-    try {
+-      validatedQuery = EchoResourceQuerySchema.parse(queryParams);
+-    } catch (validationError) {
+-      throw new McpError(
+-        BaseErrorCode.VALIDATION_ERROR,
+-        'Invalid echo resource query parameters',
+-        { 
+-          error: validationError instanceof Error ? validationError.message : 'Unknown validation error',
+-          requestId,
+-          params: queryParams
+-        }
+-      );
+-    }
+-
+-    // Prepare response data
+-    const message = validatedQuery.message || 'Hello from echo resource!';
+-    const responseData = {
+-      message,
+-      timestamp: new Date().toISOString(),
+-      requestUri: uri.href,
+-      requestId
+-    };
+-
+-    resourceLogger.info("Echo resource response data prepared", { 
+-      requestId,
+-      responseData
+-    });
+-    
+-    // Return in the standard MCP format 
+-    const response: EchoResourceResponse = {
+-      contents: [{
+-        uri: uri.href,
+-        text: JSON.stringify(responseData, null, 2),
+-        mimeType: "application/json"
+-      }]
+-    };
+-    
+-    return response;
+-  }, {
+-    context: { 
+-      requestId, 
+-      uri: uri.toString() 
+-    },
+-    operation: 'processing echo resource request',
+-    errorMapper: (error) => {
+-      // Map validation errors to VALIDATION_ERROR, other errors to INTERNAL_ERROR
+-      const errorPattern = [
+-        { 
+-          pattern: /invalid|validation|parse/i, 
+-          errorCode: BaseErrorCode.VALIDATION_ERROR,
+-          factory: () => 
+-            new McpError(BaseErrorCode.VALIDATION_ERROR, 
+-              `Invalid echo resource parameters: ${error instanceof Error ? error.message : 'Unknown error'}`,
+-              { requestId, uri: uri.toString() })
+-        }
+-      ];
+-      
+-      return ErrorHandler.mapError(
+-        error, 
+-        errorPattern, 
+-        () => new McpError(
+-          BaseErrorCode.INTERNAL_ERROR, 
+-          `Error processing echo resource request: ${error instanceof Error ? error.message : 'Unknown error'}`,
+-          { requestId, uri: uri.toString() }
+-        )
+-      );
+-    },
+-    rethrow: true
+-  });
+-};
+\ No newline at end of file
+diff --git a/src/mcp-server/resources/echoResource/index.ts b/src/mcp-server/resources/echoResource/index.ts
+deleted file mode 100644
+index 4d6d1c6..0000000
+--- a/src/mcp-server/resources/echoResource/index.ts
++++ /dev/null
+@@ -1,121 +0,0 @@
+-import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+-import { z } from 'zod';
+-import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
+-import { ErrorHandler } from '../../../utils/errorHandler.js';
+-import { ChildLogger } from '../../../utils/logger.js';
+-import { registerResource } from '../../utils/registrationHelper.js';
+-
+-/**
+- * Process the echo resource request
+- * 
+- * @param uri The resource URI 
+- * @param params The query parameters
+- * @returns Processed response data
+- */
+-const processEchoResource = (uri: URL, params: { message?: string }) => {
+-  // Extract message from params or use default
+-  const message = params.message || 'Hello from echo resource!';
+-  
+-  // Prepare response data
+-  return {
+-    message,
+-    timestamp: new Date().toISOString(),
+-    requestUri: uri.href
+-  };
+-};
+-
+-/**
+- * Register the echo resource with the MCP server
+- * 
+- * This function creates and registers the echo resource which returns a message
+- * provided in the query parameters. It configures the resource with appropriate
+- * metadata, rate limiting, and caching settings.
+- * 
+- * @param server - The MCP server instance to register the resource with
+- * @returns Promise resolving when registration is complete
+- */
+-export const registerEchoResource = async (server: McpServer): Promise<void> => {
+-  return registerResource(
+-    server,
+-    { name: "echo-resource" },
+-    async (server, resourceLogger: ChildLogger) => {
+-      // Create resource template
+-      const template = new ResourceTemplate(
+-        "echo://{message}",
+-        {
+-          // Simple list implementation
+-          list: async () => ({
+-            resources: [{
+-              uri: "echo://hello",
+-              name: "Default Echo Message",
+-              description: "A simple echo resource example"
+-            }]
+-          }),
+-          // No completion needed for this resource
+-          complete: {}
+-        }
+-      );
+-
+-      // Register the resource
+-      server.resource(
+-        // Resource name
+-        "echo-resource",
+-        
+-        // Resource template
+-        template,
+-        
+-        // Resource metadata
+-        {
+-          name: "Echo Message",
+-          description: "A simple echo resource that returns a message",
+-          mimeType: "application/json",
+-          
+-          // Query schema
+-          querySchema: z.object({
+-            message: z.string().optional()
+-              .describe('Message to echo back in the response')
+-          }),
+-          
+-          // Examples
+-          examples: [
+-            {
+-              name: "Basic echo",
+-              uri: "echo://hello",
+-              description: "Get a default welcome message"
+-            }
+-          ],
+-        },
+-        
+-        // Resource handler
+-        async (uri, params) => {
+-          // Use ErrorHandler.tryCatch for consistent error handling
+-          return await ErrorHandler.tryCatch(
+-            async () => {
+-              const responseData = processEchoResource(uri, params);
+-              
+-              // Return in the standardized format expected by the MCP SDK
+-              return {
+-                contents: [{
+-                  uri: uri.href,
+-                  text: JSON.stringify(responseData, null, 2),
+-                  mimeType: "application/json"
+-                }]
+-              };
+-            },
+-            {
+-              operation: 'processing echo resource',
+-              input: { uri: uri.href, params },
+-              // Provide custom error mapping for better error messages
+-              errorMapper: (error) => new McpError(
+-                BaseErrorCode.INTERNAL_ERROR,
+-                `Error processing echo resource: ${error instanceof Error ? error.message : 'Unknown error'}`
+-              )
+-            }
+-          );
+-        }
+-      );
+-      
+-      resourceLogger.info("Echo resource handler registered");
+-    }
+-  );
+-};
+\ No newline at end of file
+diff --git a/src/mcp-server/resources/echoResource/types.ts b/src/mcp-server/resources/echoResource/types.ts
+deleted file mode 100644
+index 17ea8af..0000000
+--- a/src/mcp-server/resources/echoResource/types.ts
++++ /dev/null
+@@ -1,35 +0,0 @@
+-import { z } from 'zod';
+-
+-/**
+- * Schema for validating echo resource query parameters
+- */
+-export const EchoResourceQuerySchema = z.object({
+-  message: z.string().optional()
+-    .describe('Message to echo back in the response')
+-}).describe(
+-  'Query parameters for the echo resource.\n' +
+-  'URI Format: echo://message'
+-);
+-
+-export type EchoResourceQuery = z.infer<typeof EchoResourceQuerySchema>;
+-
+-/**
+- * Response type for the echo resource, matching MCP SDK expectations
+- */
+-export interface EchoResourceResponse {
+-  [key: string]: unknown;
+-  contents: [{
+-    uri: string;                   // URI identifying this resource
+-    text: string;                  // JSON string of EchoData
+-    mimeType: "application/json";  // Always JSON for this resource
+-  }];
+-}
+-
+-/**
+- * Data structure for the echo response
+- */
+-export interface EchoData {
+-  message: string;              // The echoed message
+-  timestamp: string;            // When the request was processed
+-  requestUri: string;           // The original request URI
+-}
+\ No newline at end of file
+diff --git a/src/mcp-server/resources/ntfyResource/getNtfyTopic.ts b/src/mcp-server/resources/ntfyResource/getNtfyTopic.ts
+index 209707c..8b5f0f2 100644
+--- a/src/mcp-server/resources/ntfyResource/getNtfyTopic.ts
++++ b/src/mcp-server/resources/ntfyResource/getNtfyTopic.ts
+@@ -2,11 +2,12 @@ import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
+ import { ErrorHandler } from '../../../utils/errorHandler.js';
+ import { logger } from '../../../utils/logger.js';
+ import { createRequestContext } from '../../../utils/security.js';
+-import { getNtfyConfig } from '../../../config/envConfig.js';
++import { config } from '../../../config/index.js';
+ import { NtfyResourceQuery, NtfyResourceQuerySchema, NtfyResourceResponse } from './types.js';
+ 
+ // Create resource-specific logger
+ const resourceLogger = logger.createChildLogger({
++  module: 'NtfyResource',
+   service: 'NtfyResource'
+ });
+ 
+@@ -25,7 +26,7 @@ export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
+ 
+   return ErrorHandler.tryCatch(async () => {
+     // Get the default topic from configuration
+-    const ntfyConfig = getNtfyConfig();
++    const ntfyConfig = config.ntfy;
+     let defaultTopic = ntfyConfig.defaultTopic;
+     
+     if (!defaultTopic) {
+diff --git a/src/mcp-server/resources/ntfyResource/index.ts b/src/mcp-server/resources/ntfyResource/index.ts
+index 8e91a22..28f6804 100644
+--- a/src/mcp-server/resources/ntfyResource/index.ts
++++ b/src/mcp-server/resources/ntfyResource/index.ts
+@@ -65,10 +65,14 @@ export const registerNtfyResource = async (server: McpServer): Promise<void> =>
+         
+         // Resource handler
+         async (uri, params) => {
++          // Decode the URI pathname to handle URL encoding
++          const decodedPathname = decodeURIComponent(uri.pathname);
++          
+           // Handle both /default and default pathname formats for backward compatibility
+-          if (uri.pathname !== '/default' && uri.pathname !== 'default') {
++          if (decodedPathname !== '/default' && decodedPathname !== 'default') {
+             resourceLogger.error(`Invalid ntfy resource uri: ${uri.href}`, {
+               pathname: uri.pathname,
++              decodedPathname,
+               href: uri.href,
+               protocol: uri.protocol
+             });
+diff --git a/src/mcp-server/server.ts b/src/mcp-server/server.ts
+index f3276ae..a8eca33 100644
+--- a/src/mcp-server/server.ts
++++ b/src/mcp-server/server.ts
+@@ -4,7 +4,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+ import { EventEmitter } from "events";
+ import { promises as fs } from "fs";
+ import path from "path";
+-import { envConfig } from "../config/envConfig.js";
++import { fileURLToPath } from 'url';
++import { config } from "../config/index.js";
+ import { BaseErrorCode, McpError } from "../types-global/errors.js";
+ import { ErrorHandler } from "../utils/errorHandler.js";
+ import { idGenerator } from "../utils/idGenerator.js";
+@@ -12,29 +13,14 @@ import { logger } from "../utils/logger.js";
+ import { createRequestContext } from "../utils/requestContext.js";
+ import { configureContext, sanitizeInput } from "../utils/security.js";
+ 
++// Calculate __dirname equivalent for ES modules
++const __filename = fileURLToPath(import.meta.url);
++const __dirname = path.dirname(__filename);
++
+ // Import tool and resource registrations
+ import { registerNtfyTool } from "./tools/ntfyTool/index.js";
+ import { registerNtfyResource } from "./resources/ntfyResource/index.js";
+ 
+-/**
+- * Note on MCP Resource Representations:
+- * 
+- * When registering resources like the ntfy resource, they appear in two forms in MCP:
+- * 
+- * 1. Resource Template - Example: "ntfy://{topic}"
+- *    This is a template showing the URI pattern for accessing resources.
+- *    The template contains placeholders (like {topic}) showing the structure
+- *    of valid URIs. Templates help clients understand how to construct valid
+- *    resource URIs.
+- * 
+- * 2. Concrete Resource Instance - Example: "ntfy://default"
+- *    This is a specific, available resource that follows the template pattern.
+- *    Concrete resources are actual endpoints that can be accessed to retrieve data.
+- *    These are listed to help clients discover available resources.
+- * 
+- * Both representations are necessary for proper MCP resource discovery and usage.
+- */
+-
+ // Maximum file size for package.json (5MB) to prevent potential DoS
+ const MAX_FILE_SIZE = 5 * 1024 * 1024;
+ 
+@@ -46,9 +32,12 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
+ const loadPackageInfo = async (): Promise<{ name: string; version: string }> => {
+   return await ErrorHandler.tryCatch(
+     async () => {
+-      const pkgPath = path.resolve(process.cwd(), 'package.json');
++      // Use the globally defined __dirname from the top of the file
++      const pkgPath = path.resolve(__dirname, '../../package.json');
+       const safePath = sanitizeInput.path(pkgPath);
+       
++      console.error(`Looking for package.json at: ${safePath}`);
++      
+       // Get file stats to check size before reading
+       const stats = await fs.stat(safePath);
+       
+@@ -180,10 +169,11 @@ export const createMcpServer = async () => {
+ 
+   // Create server-specific logger with context
+   const serverLogger = logger.createChildLogger({
++    module: 'MCPServer',
+     service: 'MCPServer',
+     requestId: serverContext.requestId,
+     serverId,
+-    environment: envConfig().environment
++    environment: config.environment
+   });
+ 
+   // Create server events emitter
+@@ -197,6 +187,7 @@ export const createMcpServer = async () => {
+     });
+   });
+   
++  console.error("Initializing MCP server...");
+   serverLogger.info("Initializing server...");
+   
+   const timers: Array<NodeJS.Timeout> = [];
+@@ -207,179 +198,20 @@ export const createMcpServer = async () => {
+       const packageInfo = await loadPackageInfo();
+       
+       // Update logger with package info
++      console.error("Loaded package info:", packageInfo.name, packageInfo.version);
+       serverLogger.info("Loaded package info", {
+         name: packageInfo.name,
+         version: packageInfo.version
+       });
+-    
+-      // Rate limiting configuration
+-      const rateLimitSettings = {
+-        windowMs: envConfig().rateLimit.windowMs || 60000,
+-        maxRequests: envConfig().rateLimit.maxRequests || 100
+-      };
+-      
+-      // Configure context settings
+-      const contextConfig = configureContext({
+-        // Any future non-auth context settings can go here
+-      });
+ 
+       // Create the MCP server instance
++      console.error("Creating MCP server instance...");
+       server = new McpServer({
+         name: packageInfo.name,
+         version: packageInfo.version
+       });
++      console.error("MCP server instance created");
+       
+-      // Set up error handling
+-      process.on('uncaughtException', (error) => {
+-        serverState.status = 'error';
+-        serverState.errors.push({
+-          timestamp: new Date(),
+-          message: error.message,
+-          code: error instanceof McpError ? error.code : 'UNCAUGHT_EXCEPTION'
+-        });
+-        
+-        ErrorHandler.handleError(error, {
+-          operation: 'UncaughtException',
+-          context: serverContext,
+-          critical: true
+-        });
+-      });
+-      
+-      process.on('unhandledRejection', (reason) => {
+-        serverState.status = 'error';
+-        serverState.errors.push({
+-          timestamp: new Date(),
+-          message: reason instanceof Error ? reason.message : String(reason),
+-          code: reason instanceof McpError ? reason.code : 'UNHANDLED_REJECTION'
+-        });
+-        
+-        ErrorHandler.handleError(reason, {
+-          operation: 'UnhandledRejection',
+-          context: serverContext,
+-          critical: true
+-        });
+-      });
+-      
+-      /**
+-       * Update server status based on current state
+-       */
+-      const updateServerStatus = () => {
+-        const requiredToolsMet = Array.from(serverState.requiredTools)
+-          .every(tool => serverState.registeredTools.has(tool));
+-        const requiredResourcesMet = Array.from(serverState.requiredResources)
+-          .every(resource => serverState.registeredResources.has(resource));
+-        
+-        const oldStatus = serverState.status;
+-        // Only update if not in terminal states
+-        if (!['shutdown', 'shutting_down'].includes(oldStatus)) {
+-          const newStatus = requiredToolsMet && requiredResourcesMet ? 'running' : 'degraded';
+-          if (oldStatus !== newStatus) {
+-            serverState.status = newStatus;
+-            serverEvents.emitStateChange(oldStatus, newStatus);
+-          }
+-        }
+-      };
+-      
+-      /**
+-       * Health check function
+-       */
+-      function runHealthCheck() {
+-        return ErrorHandler.tryCatch(
+-          async () => {
+-            serverState.lastHealthCheck = new Date();
+-            
+-            // Check for stalled operations (longer than 5 minutes)
+-            const now = Date.now();
+-            for (const [opId, opInfo] of serverState.activeOperations.entries()) {
+-              const opRuntime = now - opInfo.startTime.getTime();
+-              if (opRuntime > 300000) { // 5 minutes
+-                serverLogger.warn(`Operation ${opInfo.operation} (${opId}) has been running for over 5 minutes`, {
+-                  operation: opInfo.operation,
+-                  startTime: opInfo.startTime,
+-                  runtime: opRuntime
+-                });
+-              }
+-            }
+-            
+-            serverLogger.debug("Server health check", { 
+-              status: serverState.status,
+-              uptime: (now - serverState.startTime.getTime()) / 1000,
+-              activeOperations: serverState.activeOperations.size,
+-              errors: serverState.errors.length
+-            });
+-          },
+-          {
+-            operation: 'HealthCheck',
+-            context: serverContext
+-          }
+-        );
+-      }
+-      
+-      // Create interval that won't prevent process exit
+-      const healthCheckInterval = setInterval(() => runHealthCheck(), 60000); // Every minute
+-      healthCheckInterval.unref(); // Ensures this won't prevent process exit
+-      
+-      // Track the interval for cleanup
+-      timers.push(healthCheckInterval);
+-      
+-      /**
+-       * Cleanup function to handle graceful shutdown
+-       */
+-      const cleanup = async () => {
+-        return await ErrorHandler.tryCatch(
+-          async () => {
+-            // Set state to shutting_down if not already
+-            if (serverState.status !== 'shutting_down' && serverState.status !== 'shutdown') {
+-              const oldStatus = serverState.status;
+-              serverState.status = 'shutting_down';
+-              serverEvents.emitStateChange(oldStatus, 'shutting_down');
+-            }
+-            
+-            // Clean up all timers
+-            for (const timer of timers) {
+-              clearInterval(timer);
+-              clearTimeout(timer);
+-            }
+-            
+-            // Wait for active operations to complete (with timeout)
+-            if (serverState.activeOperations.size > 0) {
+-              serverLogger.info(`Waiting for ${serverState.activeOperations.size} active operations to complete...`);
+-              
+-              // In a real implementation, you might want to wait for operations to complete
+-              // or implement a timeout mechanism
+-            }
+-            
+-            // Close the server
+-            if (server) {
+-              await server.close();
+-              serverLogger.info("Server closed successfully");
+-            }
+-            
+-            // Set final state
+-            serverState.status = 'shutdown';
+-            
+-            return true;
+-          },
+-          {
+-            operation: 'Cleanup',
+-            context: serverContext
+-          }
+-        );
+-      };
+-      
+-      // Track operation for cleanup on shutdown
+-      process.on('SIGINT', async () => {
+-        serverLogger.info("Shutting down server due to SIGINT signal...");
+-        await cleanup();
+-        process.exit(0);
+-      });
+-      
+-      process.on('SIGTERM', async () => {
+-        serverLogger.info("Shutting down server due to SIGTERM signal...");
+-        await cleanup();
+-        process.exit(0);
+-      });
+-
+       // Register tools and resources in parallel with error handling
+       type RegistrationResult = {
+         success: boolean;
+@@ -393,6 +225,7 @@ export const createMcpServer = async () => {
+         name: string,
+         registerFn: () => Promise<void>
+       ): Promise<RegistrationResult> => {
++        console.error(`Registering ${type}: ${name}`);
+         try {
+           await ErrorHandler.tryCatch(
+             async () => await registerFn(),
+@@ -410,13 +243,16 @@ export const createMcpServer = async () => {
+             serverState.registeredResources.add(name);
+           }
+           
++          console.error(`Successfully registered ${type}: ${name}`);
+           return { success: true, type, name };
+         } catch (error) {
++          console.error(`Failed to register ${type}: ${name}`, error);
+           return { success: false, type, name, error };
+         }
+       };
+       
+       // Register components with proper error handling
++      console.error("Registering components...");
+       const registrationPromises: Promise<RegistrationResult>[] = [
+         registerComponent('tool', 'send_ntfy', () => registerNtfyTool(server!)),
+         registerComponent('resource', 'ntfy-resource', () => registerNtfyResource(server!)),
+@@ -442,125 +278,37 @@ export const createMcpServer = async () => {
+       
+       // Process failed registrations
+       if (failedRegistrations.length > 0) {
++        console.error(`${failedRegistrations.length} registrations failed initially`, 
++          failedRegistrations.map(f => `${f.type}:${f.name}`));
++        
+         serverLogger.warn(`${failedRegistrations.length} registrations failed initially`, {
+           failedComponents: failedRegistrations.map(f => `${f.type}:${f.name}`) 
+         });
++      }
++
++      // Add debug logs to diagnose the connection issue
++      console.error("About to connect to stdio transport");
++      
++      try {
++        // Connect using stdio transport
++        const transport = new StdioServerTransport();
++        console.error("Created StdioServerTransport instance");
+         
+-        // Track failed registrations for potential retry
+-        for (const failure of failedRegistrations) {
+-          serverState.failedRegistrations.push({
+-            type: failure.type,
+-            name: failure.name,
+-            error: failure.error || new Error('Unknown error during registration'),
+-            attempts: 1
+-          });
+-        }
++        // Set event handlers - using type assertion to avoid TS errors
++        (server as any).onerror = (err: Error) => {
++          console.error(`Server error: ${err.message}`);
++        };
+         
+-        // Update server status based on failures
+-        updateServerStatus();
++        // Skip setting onrequest since we don't have access to the type
+         
+-        // Set up retry mechanism for failed registrations
+-        if (serverState.failedRegistrations.length > 0) {
+-          const retryInterval = setInterval(async () => {
+-            await ErrorHandler.tryCatch(
+-              async () => {
+-                if (serverState.failedRegistrations.length === 0) {
+-                  clearInterval(retryInterval);
+-                  return;
+-                }
+-                
+-                const retryable = serverState.failedRegistrations.filter(f => f.attempts < MAX_REGISTRATION_RETRIES);
+-                if (retryable.length === 0) {
+-                  serverLogger.warn("Maximum retry attempts reached for all failed registrations");
+-                  clearInterval(retryInterval);
+-                  return;
+-                }
+-                
+-                serverLogger.info(`Attempting to retry ${retryable.length} failed registrations...`);
+-                
+-                // Retry each component
+-                for (let i = 0; i < retryable.length; i++) {
+-                  const failedReg = { ...retryable[i] }; // Get a copy to avoid mutation issues
+-                  
+-                  try {
+-                    if (failedReg.type === 'tool' && failedReg.name === 'send_ntfy') {
+-                      // Retry tool registration
+-                      await registerNtfyTool(server!);
+-                      serverState.registeredTools.add(failedReg.name);
+-                      
+-                      // Remove from failed list
+-                      serverState.failedRegistrations = serverState.failedRegistrations.filter(
+-                        f => !(f.type === 'tool' && f.name === failedReg.name)
+-                      );
+-                      
+-                      serverLogger.info(`Successfully retried registration for tool: ${failedReg.name}`);
+-                    } 
+-                    else if (failedReg.type === 'resource' && failedReg.name === 'ntfy-resource') {
+-                      // Retry resource registration
+-                      await registerNtfyResource(server!);
+-                      serverState.registeredResources.add(failedReg.name);
+-                      
+-                      // Remove from failed list
+-                      serverState.failedRegistrations = serverState.failedRegistrations.filter(
+-                        f => !(f.type === 'resource' && f.name === failedReg.name)
+-                      );
+-                      
+-                      serverLogger.info(`Successfully retried registration for resource: ${failedReg.name}`);
+-                    }
+-                  } catch (error) {
+-                    // Increment retry count
+-                    const failedItem = serverState.failedRegistrations.find(
+-                      f => f.type === failedReg.type && f.name === failedReg.name
+-                    );
+-                    
+-                    if (failedItem) {
+-                      failedItem.attempts++;
+-                      failedItem.error = error;
+-                    }
+-                    
+-                    serverLogger.error(`Retry failed for ${failedReg.type} ${failedReg.name}`, { 
+-                      error: error instanceof Error ? error.message : String(error),
+-                      attemptNumber: failedItem?.attempts
+-                    });
+-                  }
+-                }
+-                
+-                // After retry attempts, update server status
+-                updateServerStatus();
+-              },
+-              {
+-                operation: 'RetryRegistrations',
+-                context: serverContext
+-              }
+-            );
+-          }, 30000); // Retry every 30 seconds
+-          
+-          // Ensure interval doesn't prevent process exit
+-          retryInterval.unref();
+-          // Track the interval for cleanup
+-          timers.push(retryInterval);
+-        }
++        await server.connect(transport);
++        console.error("Connected to transport successfully");
++      } catch (error) {
++        console.error("Error connecting to transport:", error);
++        throw error;
+       }
+-
+-      // Connect using stdio transport
+-      await server.connect(new StdioServerTransport());
+-      
+-      // Update server state
+-      const oldStatus = serverState.status;
+-      serverState.status = 'running';
+-      serverEvents.emitStateChange(oldStatus, 'running');
+       
+-      serverLogger.info("Server started and connected successfully", {
+-        tools: Array.from(serverState.registeredTools),
+-        resources: Array.from(serverState.registeredResources)
+-      });
+-
+-      // Add event listener for graceful shutdown
+-      serverEvents.on('state:shutting_down', () => cleanup());
+-
+-      // Run initial health check
+-      await runHealthCheck();
+-
++      console.error("MCP server initialized and connected");
+       return server;
+     },
+     {
+@@ -579,11 +327,7 @@ export const createMcpServer = async () => {
+       )
+     }
+   ).catch((error) => {
+-    // Clean up timers
+-    for (const timer of timers) {
+-      clearInterval(timer);
+-      clearTimeout(timer);
+-    }
++    console.error("Fatal error in MCP server creation:", error);
+     
+     // Attempt to close server
+     if (server) {
+@@ -591,9 +335,7 @@ export const createMcpServer = async () => {
+         server.close();
+       } catch (closeError) {
+         // Already in error state, just log
+-        serverLogger.debug("Error while closing server during error recovery", {
+-          error: closeError instanceof Error ? closeError.message : String(closeError)
+-        });
++        console.error("Error while closing server during error recovery:", closeError);
+       }
+     }
+     
+diff --git a/src/mcp-server/tools/ntfyTool/index.ts b/src/mcp-server/tools/ntfyTool/index.ts
+index 80cb4b9..4e7d404 100644
+--- a/src/mcp-server/tools/ntfyTool/index.ts
++++ b/src/mcp-server/tools/ntfyTool/index.ts
+@@ -1,5 +1,5 @@
+ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+-import { getNtfyConfig } from "../../../config/envConfig.js";
++import { config } from "../../../config/index.js";
+ import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
+ import { ErrorHandler } from "../../../utils/errorHandler.js";
+ import { logger } from "../../../utils/logger.js";
+@@ -42,7 +42,7 @@ export const registerNtfyTool = async (server: McpServer): Promise<void> => {
+       const schemaWithLatestConfig = SendNtfyToolInputSchema();
+       
+       // Log default topic info at registration time for verification
+-      const ntfyConfig = getNtfyConfig();
++      const ntfyConfig = config.ntfy;
+       toolLogger.info('Registering ntfy tool handler with config', {
+         defaultTopic: ntfyConfig.defaultTopic || '(not set)',
+         baseUrl: ntfyConfig.baseUrl,
+diff --git a/src/mcp-server/tools/ntfyTool/ntfyMessage.ts b/src/mcp-server/tools/ntfyTool/ntfyMessage.ts
+index 3bb1f3a..2c87974 100644
+--- a/src/mcp-server/tools/ntfyTool/ntfyMessage.ts
++++ b/src/mcp-server/tools/ntfyTool/ntfyMessage.ts
+@@ -1,7 +1,7 @@
+ import { BaseErrorCode, McpError } from "../../../types-global/errors.js";
+ import { ErrorHandler } from "../../../utils/errorHandler.js";
+ import { publish, NtfyPublishOptions, NtfyPriority, validateTopicSync } from "../../../services/ntfy/index.js";
+-import { getNtfyConfig, getRateLimit } from "../../../config/envConfig.js";
++import { config } from "../../../config/index.js";
+ import { SendNtfyToolInput, SendNtfyToolResponse, createSendNtfyToolSchema } from "./types.js";
+ import { logger } from "../../../utils/logger.js";
+ import { createRequestContext } from "../../../utils/requestContext.js";
+@@ -16,7 +16,7 @@ const ntfyToolLogger = logger.createChildLogger({
+ });
+ 
+ // Create rate limiters for global and per-topic usage
+-const rateLimit = getRateLimit();
++const rateLimit = config.rateLimit;
+ const globalRateLimiter = new RateLimiter({
+   windowMs: rateLimit.windowMs,
+   maxRequests: rateLimit.maxRequests,
+@@ -83,7 +83,7 @@ export const processNtfyMessage = async (
+       });
+       
+       // Get the ntfy config
+-      const ntfyConfig = getNtfyConfig();
++      const ntfyConfig = config.ntfy;
+       
+       // Use default topic from env if not provided
+       const finalTopic = topic || ntfyConfig.defaultTopic;
+@@ -315,7 +315,7 @@ export const processNtfyMessage = async (
+     {
+       operation: 'processNtfyMessage',
+       context: { 
+-        topic: params.topic || getNtfyConfig().defaultTopic,
++        topic: params.topic || config.ntfy.defaultTopic,
+         hasTitle: !!params.title
+       },
+       input: sanitizeInputForLogging(params),
+diff --git a/src/mcp-server/tools/ntfyTool/types.ts b/src/mcp-server/tools/ntfyTool/types.ts
+index 57ec677..96ef90f 100644
+--- a/src/mcp-server/tools/ntfyTool/types.ts
++++ b/src/mcp-server/tools/ntfyTool/types.ts
+@@ -1,5 +1,5 @@
+ import { z } from 'zod';
+-import { getNtfyConfig } from '../../../config/envConfig.js';
++import { config } from '../../../config/index.js';
+ import { logger } from '../../../utils/logger.js';
+ import { createRequestContext } from '../../../utils/requestContext.js';
+ import { sanitizeInput } from '../../../utils/sanitization.js';
+@@ -41,7 +41,7 @@ export function createSendNtfyToolSchema() {
+   schemaLogger.debug('Creating send_ntfy tool schema');
+   
+   // Get the latest configuration
+-  const ntfyConfig = getNtfyConfig();
++  const ntfyConfig = config.ntfy;
+   
+   // Process configuration values
+   const baseUrl = ntfyConfig.baseUrl || 'https://ntfy.sh';
+diff --git a/src/mcp-server/utils/registrationHelper.ts b/src/mcp-server/utils/registrationHelper.ts
+index a80df09..aac2476 100644
+--- a/src/mcp-server/utils/registrationHelper.ts
++++ b/src/mcp-server/utils/registrationHelper.ts
+@@ -113,4 +113,4 @@ export default {
+   registerComponent,
+   registerTool,
+   registerResource
+-};
+\ No newline at end of file
++};
+diff --git a/src/services/ntfy/publisher.ts b/src/services/ntfy/publisher.ts
+index af79771..cbd5a29 100644
+--- a/src/services/ntfy/publisher.ts
++++ b/src/services/ntfy/publisher.ts
+@@ -2,19 +2,19 @@
+  * Ntfy publisher implementation for sending notifications
+  */
+ import { DEFAULT_NTFY_BASE_URL, DEFAULT_REQUEST_TIMEOUT, ERROR_MESSAGES } from './constants.js';
+-import { NtfyConnectionError, NtfyInvalidTopicError, ntfyErrorMapper } from './errors.js';
++import { NtfyAuthenticationError, NtfyConnectionError, NtfyInvalidTopicError, ntfyErrorMapper } from './errors.js';
+ import { NtfyAction, NtfyAttachment, NtfyPriority } from './types.js';
+ import { 
+   createTimeout, 
+   validateTopicSync, 
+   createRequestHeadersSync 
+ } from './utils.js';
++import { BaseErrorCode, McpError } from '../../types-global/errors.js';
+ import { ErrorHandler } from '../../utils/errorHandler.js';
+ import { logger } from '../../utils/logger.js';
+ import { sanitizeInput, sanitizeInputForLogging } from '../../utils/sanitization.js';
+ import { createRequestContext } from '../../utils/requestContext.js';
+ import { idGenerator } from '../../utils/idGenerator.js';
+-import { BaseErrorCode } from '../../types-global/errors.js';
+ 
+ // Create a module-specific logger
+ const publisherLogger = logger.createChildLogger({ 
+@@ -260,10 +260,44 @@ export async function publish(
+             url,
+             requestId: requestCtx.requestId
+           });
+-          throw new NtfyConnectionError(
+-            `HTTP Error: ${response.status} ${response.statusText}`,
+-            url
+-          );
++          
++          // Provide more specific error messages based on status code
++          let errorMessage = `HTTP Error: ${response.status} ${response.statusText}`;
++          
++          switch (response.status) {
++            case 401:
++              errorMessage = 'Authentication failed: invalid credentials';
++              throw new NtfyAuthenticationError(errorMessage);
++            case 403:
++              errorMessage = 'Access forbidden: insufficient permissions';
++              throw new McpError(
++                BaseErrorCode.FORBIDDEN, 
++                errorMessage, 
++                { url, statusCode: response.status }
++              );
++            case 404:
++              errorMessage = 'Topic or resource not found';
++              throw new McpError(
++                BaseErrorCode.NOT_FOUND, 
++                errorMessage, 
++                { url, statusCode: response.status, topic }
++              );
++            case 429:
++              errorMessage = 'Too many requests: rate limit exceeded';
++              throw new McpError(
++                BaseErrorCode.RATE_LIMITED, 
++                errorMessage, 
++                { url, statusCode: response.status }
++              );
++            case 500:
++            case 502:
++            case 503:
++            case 504:
++              errorMessage = `Server error: ${response.statusText}`;
++              // Fall through to default error handling
++            default:
++              throw new NtfyConnectionError(errorMessage, url);
++          }
+         }
+ 
+         // Parse response
+@@ -308,4 +342,4 @@ export async function publish(
+       rethrow: true
+     }
+   );
+-}
+\ No newline at end of file
++}
+diff --git a/src/services/ntfy/subscriber.ts b/src/services/ntfy/subscriber.ts
+index 3f3f3bf..4938827 100644
+--- a/src/services/ntfy/subscriber.ts
++++ b/src/services/ntfy/subscriber.ts
+@@ -352,16 +352,52 @@ export class NtfySubscriber {
+         this.connectionActive = false;
+         this.logger.error('Error reading from stream', {
+           error: error instanceof Error ? error.message : String(error),
++          errorType: error instanceof Error ? error.name : typeof error,
+           requestId
+         });
+         
+-        if (error instanceof Error && error.name === 'AbortError') {
+-          throw new NtfySubscriptionClosedError('Subscription aborted');
+-        } else {
+-          throw new NtfyConnectionError(
+-            `Error reading from stream: ${error instanceof Error ? error.message : String(error)}`
+-          );
++        // Handle various error types more specifically
++        if (error instanceof Error) {
++          // AbortError - intentional close
++          if (error.name === 'AbortError') {
++            throw new NtfySubscriptionClosedError('Subscription aborted');
++          }
++          
++          // Network errors
++          if (
++            error.name === 'NetworkError' || 
++            error.name === 'TypeError' ||
++            error.message.includes('network') ||
++            error.message.includes('connection')
++          ) {
++            const connectionError = new NtfyConnectionError(
++              `Network error during stream processing: ${error.message}`
++            );
++            // Add additional context to the error details
++            connectionError.details = { 
++              originalError: error.name,
++              originalMessage: error.message
++            };
++            throw connectionError;
++          }
++          
++          // Timeout errors
++          if (
++            error.name === 'TimeoutError' ||
++            error.message.includes('timeout') ||
++            error.message.includes('timed out')
++          ) {
++            throw new NtfyTimeoutError(
++              `Stream reading timed out: ${error.message}`,
++              DEFAULT_REQUEST_TIMEOUT
++            );
++          }
+         }
++        
++        // Default case - generic connection error
++        throw new NtfyConnectionError(
++          `Error reading from stream: ${error instanceof Error ? error.message : String(error)}`
++        );
+       }
+     }
+   }
+@@ -565,13 +601,22 @@ export class NtfySubscriber {
+     });
+     
+     this.reconnectAttempts++;
+-    const delay = RECONNECT_DELAY * this.reconnectAttempts;
++    
++    // Add jitter to prevent thundering herd problem
++    // and cap at a maximum delay of 30 seconds
++    const MAX_BACKOFF_DELAY = 30000; // 30 seconds
++    const baseDelay = RECONNECT_DELAY * this.reconnectAttempts;
++    const jitter = Math.floor(Math.random() * 1000); // Add up to 1 second of jitter
++    const delay = Math.min(baseDelay + jitter, MAX_BACKOFF_DELAY);
+     
+     this.logger.info('Scheduling reconnection attempt', {
+       topic,
+       attemptNumber: this.reconnectAttempts,
+       maxAttempts: MAX_RECONNECT_ATTEMPTS,
+-      delayMs: delay,
++      baseDelay: baseDelay,
++      jitter: jitter,
++      actualDelay: delay,
++      maxBackoff: MAX_BACKOFF_DELAY,
+       requestId: requestCtx.requestId
+     });
+     
+@@ -589,4 +634,4 @@ export class NtfySubscriber {
+       }
+     }, delay);
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/types-global/errors.ts b/src/types-global/errors.ts
+index 5adf1a5..98a3ecf 100644
+--- a/src/types-global/errors.ts
++++ b/src/types-global/errors.ts
+@@ -2,18 +2,20 @@ import { z } from "zod";
+ import { McpContent, McpToolResponse } from "./mcp.js";
+ 
+ // Base error codes that all tools can use
+-export enum BaseErrorCode {
+-  UNAUTHORIZED = 'UNAUTHORIZED',
+-  FORBIDDEN = 'FORBIDDEN',
+-  NOT_FOUND = 'NOT_FOUND',
+-  CONFLICT = 'CONFLICT',
+-  VALIDATION_ERROR = 'VALIDATION_ERROR',
+-  RATE_LIMITED = 'RATE_LIMITED',
+-  TIMEOUT = 'TIMEOUT',
+-  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
+-  INTERNAL_ERROR = 'INTERNAL_ERROR',
+-  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+-}
++export const BaseErrorCode = {
++  UNAUTHORIZED: 'UNAUTHORIZED',
++  FORBIDDEN: 'FORBIDDEN',
++  NOT_FOUND: 'NOT_FOUND',
++  CONFLICT: 'CONFLICT',
++  VALIDATION_ERROR: 'VALIDATION_ERROR',
++  RATE_LIMITED: 'RATE_LIMITED',
++  TIMEOUT: 'TIMEOUT',
++  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
++  INTERNAL_ERROR: 'INTERNAL_ERROR',
++  UNKNOWN_ERROR: 'UNKNOWN_ERROR'
++} as const;
++
++export type BaseErrorCode = typeof BaseErrorCode[keyof typeof BaseErrorCode];
+ 
+ // Base MCP error class
+ export class McpError extends Error {
+@@ -48,4 +50,4 @@ export const ErrorSchema = z.object({
+   details: z.record(z.unknown()).optional()
+ });
+ 
+-export type ErrorResponse = z.infer<typeof ErrorSchema>;
+\ No newline at end of file
++export type ErrorResponse = z.infer<typeof ErrorSchema>;
+diff --git a/src/utils/index.ts b/src/utils/index.ts
+index 2847875..29e5916 100644
+--- a/src/utils/index.ts
++++ b/src/utils/index.ts
+@@ -6,20 +6,20 @@ export * from './logger.js';
+ export * from './rateLimiter.js';
+ export * from './sanitization.js';
+ 
+-// Import default exports
+-import requestContext from './requestContext.js';
+-import errorHandler from './errorHandler.js';
+-import idGenerator from './idGenerator.js';
+-import logger from './logger.js';
+-import rateLimiter from './rateLimiter.js';
+-import sanitization from './sanitization.js';
++// Import named exports to re-export
++import { default as requestContext } from './requestContext.js';
++import { default as errorHandler } from './errorHandler.js'; 
++import { default as idGenerator } from './idGenerator.js';
++import { logger } from './logger.js';
++import { default as rateLimiter } from './rateLimiter.js';
++import { default as sanitization } from './sanitization.js';
+ 
+-// Export combined default
+-export default {
++// Export frequently used utilities directly
++export { 
+   requestContext,
+   errorHandler,
+   idGenerator,
+   logger,
+   rateLimiter,
+   sanitization
+-};
+\ No newline at end of file
++};
+diff --git a/src/utils/logger.ts b/src/utils/logger.ts
+index e467757..565caf9 100644
+--- a/src/utils/logger.ts
++++ b/src/utils/logger.ts
+@@ -1,478 +1,138 @@
+-import fs from 'fs';
+-import path from 'path';
+-import winston from 'winston';
+-import 'winston-daily-rotate-file';
+-import { BaseErrorCode, McpError } from '../types-global/errors.js';
+-
+-/**
+- * Supported log levels
+- */
+-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+-
+-/**
+- * Log format types
+- */
+-export type LogFormat = 'json' | 'simple' | 'detailed';
+-
+-/**
+- * Logger configuration options
+- */
+-export interface LoggerConfig {
+-  /** Log level (debug, info, warn, error) */
+-  level?: LogLevel;
+-  /** Directory for log files */
+-  logDir?: string;
+-  /** Format for log output */
+-  format?: LogFormat;
+-  /** Whether to log to files */
+-  files?: boolean;
+-  /** Log rotation settings */
+-  rotation?: {
+-    /** Enable log file rotation */
+-    enabled?: boolean;
+-    /** Maximum size of each log file before rotation (e.g., "10m", "1g") */
+-    maxSize?: string;
+-    /** Maximum number of files to keep */
+-    maxFiles?: number;
+-  };
+-  /** Sensitive data fields that should be redacted from logs */
+-  sensitiveFields?: string[];
+-}
++import fs from "fs";
++import path from "path";
++import { fileURLToPath } from "url";
++import winston from "winston";
++
++type LogLevel = "debug" | "info" | "warn" | "error";
++
++export type ChildLogger = {
++  debug: (message: string, context?: Record<string, unknown>) => void;
++  info: (message: string, context?: Record<string, unknown>) => void;
++  warn: (message: string, context?: Record<string, unknown>) => void;
++  error: (message: string, context?: Record<string, unknown>) => void;
++};
+ 
+-/**
+- * Logger error that should cause termination
+- */
+-export class LoggerError extends McpError {
+-  constructor(message: string, details?: Record<string, unknown>) {
+-    super(BaseErrorCode.INTERNAL_ERROR, message, details);
+-    this.name = 'LoggerError';
+-  }
+-}
++// Handle ESM module dirname
++const __filename = fileURLToPath(import.meta.url);
++const __dirname = path.dirname(__filename);
+ 
+-/**
+- * Default configuration values
+- */
+-const DEFAULT_CONFIG: LoggerConfig = {
+-  level: 'info',
+-  logDir: undefined, // Will be set based on env var, no default
+-  format: 'detailed',
+-  files: true,
+-  rotation: {
+-    enabled: true,
+-    maxSize: '50m',
+-    maxFiles: 10
+-  },
+-  sensitiveFields: [
+-    'password', 'token', 'secret', 'key', 'apiKey', 'auth', 
+-    'credential', 'jwt', 'ssn', 'credit', 'card', 'cvv', 'authorization'
+-  ]
+-};
++// Resolve logs directory relative to project root (2 levels up from utils/)
++const projectRoot = path.resolve(__dirname, '..', '..');
++const logsDir = path.join(projectRoot, 'logs');
+ 
+-/**
+- * Generic Logger class with configuration options
+- * Implements the Singleton pattern for consistent logging across the application
+- */
+-export class Logger {
++class Logger {
+   private static instance: Logger;
+   private logger: winston.Logger;
+-  private config: LoggerConfig;
+-  
+-  /**
+-   * Private constructor (use getInstance instead)
+-   * @param config Initial logger configuration
+-   */
+-  private constructor(config: LoggerConfig = {}) {
+-    // Merge provided config with defaults
+-    this.config = this.mergeConfig(DEFAULT_CONFIG, config);
+-    
+-    // Initialize with a silent logger - no console output
+-    this.logger = winston.createLogger({
+-      silent: true,
+-      transports: []
+-    });
++
++  private constructor() {
++    const logLevel = (process.env.LOG_LEVEL as LogLevel) || "info";
+     
+-    // Only attempt file logging if LOG_FILE_DIR env var is set
+-    if (process.env.LOG_FILE_DIR) {
+-      try {
+-        this.setupFileLogging();
+-      } catch (error) {
+-        // Silent fail - no console.log
+-      }
++    // Ensure logs directory exists
++    if (!fs.existsSync(logsDir)) {
++      fs.mkdirSync(logsDir, { recursive: true });
+     }
+-  }
+ 
+-  /**
+-   * Merge configurations with proper handling of nested objects
+-   */
+-  private mergeConfig(defaultConfig: LoggerConfig, userConfig: LoggerConfig): LoggerConfig {
+-    return {
+-      ...defaultConfig,
+-      ...userConfig,
+-      rotation: {
+-        ...defaultConfig.rotation,
+-        ...userConfig.rotation
+-      },
+-      sensitiveFields: [
+-        ...(defaultConfig.sensitiveFields || []),
+-        ...(userConfig.sensitiveFields || [])
++    // Common format for all transports
++    const commonFormat = winston.format.combine(
++      winston.format.timestamp(),
++      winston.format.errors({ stack: true }),
++      winston.format.printf(({ timestamp, level, message, context, stack }) => {
++        const contextStr = context ? `\n  Context: ${JSON.stringify(context, null, 2)}` : "";
++        const stackStr = stack ? `\n  Stack: ${stack}` : "";
++        return `[${timestamp}] ${level}: ${message}${contextStr}${stackStr}`;
++      })
++    );
++
++    this.logger = winston.createLogger({
++      level: logLevel,
++      format: winston.format.json(),
++      transports: [
++        // Combined log file for all levels
++        new winston.transports.File({
++          filename: path.join(logsDir, 'combined.log'),
++          format: commonFormat
++        }),
++        // Separate log files for each level
++        new winston.transports.File({
++          filename: path.join(logsDir, 'error.log'),
++          level: 'error',
++          format: commonFormat
++        }),
++        new winston.transports.File({
++          filename: path.join(logsDir, 'warn.log'),
++          level: 'warn',
++          format: commonFormat
++        }),
++        new winston.transports.File({
++          filename: path.join(logsDir, 'info.log'),
++          level: 'info',
++          format: commonFormat
++        }),
++        new winston.transports.File({
++          filename: path.join(logsDir, 'debug.log'),
++          level: 'debug',
++          format: commonFormat
++        })
+       ]
+-    };
++    });
+   }
+ 
+-  /**
+-   * Get or create the singleton logger instance
+-   * @param config Optional configuration to override defaults
+-   * @returns The logger instance
+-   */
+-  public static getInstance(config?: LoggerConfig): Logger {
++  public static getInstance(): Logger {
+     if (!Logger.instance) {
+-      Logger.instance = new Logger(config);
+-    } else if (config) {
+-      // Update configuration if provided
+-      Logger.instance.configure(config);
++      Logger.instance = new Logger();
+     }
+     return Logger.instance;
+   }
+ 
+-  /**
+-   * Updates logger configuration
+-   * @param config New configuration options
+-   */
+-  public configure(config: LoggerConfig): void {
+-    this.config = this.mergeConfig(this.config, config);
+-    
+-    // Only reconfigure file logging if LOG_FILE_DIR is set
+-    if (process.env.LOG_FILE_DIR) {
+-      try {
+-        this.setupFileLogging();
+-      } catch (error) {
+-        // Silent fail - no console.log
+-      }
+-    }
++  public debug(message: string, context?: Record<string, unknown>) {
++    this.logger.debug(message, { context });
+   }
+ 
+-  /**
+-   * Set up file-based logging with proper error handling
+-   */
+-  private setupFileLogging(): void {
+-    // Only use LOG_FILE_DIR from environment
+-    const logDirPath = process.env.LOG_FILE_DIR;
+-    
+-    if (!logDirPath) {
+-      return;
+-    }
+-    
+-    // Create log directory if it doesn't exist
+-    try {
+-      if (!fs.existsSync(logDirPath)) {
+-        fs.mkdirSync(logDirPath, { recursive: true });
+-      }
+-    } catch (error) {
+-      // Silent fail - no console.log
+-      return;
+-    }
+-    
+-    // Create log format based on configuration
+-    const logFormat = this.createLogFormat(this.config.format);
+-    
+-    // Create new logger with file transports - no console transport
+-    const transports: winston.transport[] = [];
+-    
+-    if (this.config.rotation?.enabled) {
+-      // Use daily rotate file transport if rotation is enabled
+-      const dailyRotateOpts = {
+-        dirname: logDirPath,
+-        datePattern: 'YYYY-MM-DD',
+-        maxSize: this.config.rotation.maxSize,
+-        maxFiles: this.config.rotation.maxFiles,
+-        format: logFormat
+-      };
+-      
+-      try {
+-        // Combined logs
+-        const combinedTransport = new winston.transports.DailyRotateFile({
+-          ...dailyRotateOpts,
+-          filename: 'combined-%DATE%.log'
+-        });
+-        transports.push(combinedTransport);
+-        
+-        // Error logs
+-        const errorTransport = new winston.transports.DailyRotateFile({
+-          ...dailyRotateOpts,
+-          filename: 'error-%DATE%.log',
+-          level: 'error'
+-        });
+-        transports.push(errorTransport);
+-      } catch (error) {
+-        // Silent fail - no console.log
+-      }
+-    } else {
+-      // Standard file logging without rotation
+-      try {
+-        // Combined logs
+-        const combinedTransport = new winston.transports.File({
+-          filename: path.join(logDirPath, 'combined.log'),
+-          format: logFormat
+-        });
+-        transports.push(combinedTransport);
+-        
+-        // Error logs
+-        const errorTransport = new winston.transports.File({
+-          filename: path.join(logDirPath, 'error.log'),
+-          level: 'error',
+-          format: logFormat
+-        });
+-        transports.push(errorTransport);
+-      } catch (error) {
+-        // Silent fail - no console.log
+-      }
+-    }
+-    
+-    // If we have transports, create a proper logger
+-    if (transports.length > 0) {
+-      this.logger = winston.createLogger({
+-        level: this.config.level || DEFAULT_CONFIG.level,
+-        format: winston.format.combine(
+-          winston.format.timestamp(),
+-          winston.format(this.sanitizeSensitiveData.bind(this))(),
+-          winston.format.json()
+-        ),
+-        defaultMeta: { service: 'mcp-service' },
+-        transports,
+-        silent: false,
+-        exitOnError: false
+-      });
+-    }
++  public info(message: string, context?: Record<string, unknown>) {
++    this.logger.info(message, { context });
+   }
+ 
+-  /**
+-   * Create the appropriate log format based on configuration
+-   */
+-  private createLogFormat(format: LogFormat = 'detailed'): winston.Logform.Format {
+-    switch (format) {
+-      case 'json':
+-        return winston.format.combine(
+-          winston.format.timestamp(),
+-          winston.format.json()
+-        );
+-        
+-      case 'simple':
+-        return winston.format.combine(
+-          winston.format.timestamp(),
+-          winston.format.printf(({ timestamp, level, message }) => {
+-            return `[${timestamp}] ${level}: ${message}`;
+-          })
+-        );
+-        
+-      case 'detailed':
+-      default:
+-        return winston.format.combine(
+-          winston.format.timestamp(),
+-          winston.format.errors({ stack: true }),
+-          winston.format.printf(({ timestamp, level, message, context, stack }) => {
+-            const contextStr = context ? `\n  Context: ${JSON.stringify(context, null, 2)}` : '';
+-            const stackStr = stack ? `\n  Stack: ${stack}` : '';
+-            return `[${timestamp}] ${level}: ${message}${contextStr}${stackStr}`;
+-          })
+-        );
+-    }
++  public warn(message: string, context?: Record<string, unknown>) {
++    this.logger.warn(message, { context });
+   }
+ 
+-  /**
+-   * Sanitize sensitive data in logs
+-   */
+-  private sanitizeSensitiveData(info: any): any {
+-    if (!info || typeof info !== 'object') {
+-      return info;
+-    }
+-    
+-    // Get sensitive fields from config
+-    const sensitiveFields = this.config.sensitiveFields || DEFAULT_CONFIG.sensitiveFields || [];
+-    
+-    // Create deep copy to avoid modifying the original
+-    const sanitized = { ...info };
+-    
+-    // Sanitize context if it exists
+-    if (sanitized.context && typeof sanitized.context === 'object') {
+-      sanitized.context = this.redactSensitiveFields(sanitized.context, sensitiveFields);
+-    }
+-    
+-    return sanitized;
+-  }
+-  
+-  /**
+-   * Recursively redact sensitive fields in an object
+-   */
+-  private redactSensitiveFields(obj: any, sensitiveFields: string[]): any {
+-    if (!obj || typeof obj !== 'object') {
+-      return obj;
+-    }
+-    
+-    // Handle arrays
+-    if (Array.isArray(obj)) {
+-      return obj.map(item => this.redactSensitiveFields(item, sensitiveFields));
+-    }
+-    
+-    // Handle regular objects
+-    const result: Record<string, any> = {};
+-    
+-    for (const [key, value] of Object.entries(obj)) {
+-      // Check if this key matches any sensitive field pattern
+-      const isSensitive = sensitiveFields.some(field => 
+-        key.toLowerCase().includes(field.toLowerCase())
+-      );
+-      
+-      if (isSensitive) {
+-        // Redact sensitive value
+-        result[key] = '[REDACTED]';
+-      } else if (value && typeof value === 'object') {
+-        // Recursively process nested objects
+-        result[key] = this.redactSensitiveFields(value, sensitiveFields);
+-      } else {
+-        // Pass through non-sensitive values
+-        result[key] = value;
+-      }
+-    }
+-    
+-    return result;
+-  }
+-
+-  /**
+-   * Log a debug message - no-op if logger is not configured
+-   */
+-  public debug(message: string, context?: Record<string, unknown>): void {
+-    try {
+-      this.logger.debug(message, { context });
+-    } catch (error) {
+-      // Silent fail
+-    }
+-  }
+-
+-  /**
+-   * Log an info message - no-op if logger is not configured
+-   */
+-  public info(message: string, context?: Record<string, unknown>): void {
+-    try {
+-      this.logger.info(message, { context });
+-    } catch (error) {
+-      // Silent fail
+-    }
+-  }
+-
+-  /**
+-   * Log a warning message - no-op if logger is not configured
+-   */
+-  public warn(message: string, context?: Record<string, unknown>): void {
+-    try {
+-      this.logger.warn(message, { context });
+-    } catch (error) {
+-      // Silent fail
+-    }
+-  }
+-
+-  /**
+-   * Log an error message - no-op if logger is not configured
+-   */
+-  public error(message: string, context?: Record<string, unknown>): void {
+-    try {
+-      this.logger.error(message, { context });
+-    } catch (error) {
+-      // Silent fail
+-    }
+-  }
+-
+-  /**
+-   * Log an exception with full stack trace - no-op if logger is not configured
+-   */
+-  public exception(message: string, error: Error, context?: Record<string, unknown>): void {
+-    try {
+-      this.logger.error(message, {
+-        context,
+-        stack: error.stack,
+-        error: {
+-          name: error.name,
+-          message: error.message
+-        }
+-      });
+-    } catch (error) {
+-      // Silent fail
+-    }
++  public error(message: string, context?: Record<string, unknown>) {
++    this.logger.error(message, { context });
+   }
+ 
+-  /**
+-   * Create a child logger with additional default context
+-   */
+-  public createChildLogger(defaultContext: Record<string, unknown>): ChildLogger {
+-    return new ChildLogger(this, defaultContext);
+-  }
+-  
+-  /**
+-   * Dispose logger resources
+-   */
+-  public dispose(): void {
+-    try {
+-      this.logger.close();
+-    } catch (error) {
+-      // Silent fail
+-    }
+-  }
+-}
+-
+-/**
+- * Child logger that includes default context with all log messages
+- */
+-export class ChildLogger {
+-  /**
+-   * Create a new child logger
+-   */
+-  constructor(
+-    private parent: Logger,
+-    private defaultContext: Record<string, unknown>
+-  ) {}
+-
+-  /**
+-   * Merge provided context with default context
+-   */
+-  private mergeContext(context?: Record<string, unknown>): Record<string, unknown> {
++  public createChildLogger(metadata: { 
++    module: string; 
++    service?: string;
++    serviceId?: string;
++    componentName?: string;
++    subscriberId?: string;
++    component?: string;
++    requestId?: string;
++    subscriptionTime?: string;
++    environment?: string;
++    serverId?: string;
++    [key: string]: any; // Allow any additional properties for backward compatibility
++  }): {
++    debug: (message: string, context?: Record<string, unknown>) => void;
++    info: (message: string, context?: Record<string, unknown>) => void;
++    warn: (message: string, context?: Record<string, unknown>) => void;
++    error: (message: string, context?: Record<string, unknown>) => void;
++  } {
+     return {
+-      ...this.defaultContext,
+-      ...context
++      debug: (message: string, context?: Record<string, unknown>) => {
++        this.debug(`[${metadata.module}] ${message}`, context);
++      },
++      info: (message: string, context?: Record<string, unknown>) => {
++        this.info(`[${metadata.module}] ${message}`, context);
++      },
++      warn: (message: string, context?: Record<string, unknown>) => {
++        this.warn(`[${metadata.module}] ${message}`, context);
++      },
++      error: (message: string, context?: Record<string, unknown>) => {
++        this.error(`[${metadata.module}] ${message}`, context);
++      }
+     };
+   }
+-
+-  public debug(message: string, context?: Record<string, unknown>): void {
+-    this.parent.debug(message, this.mergeContext(context));
+-  }
+-
+-  public info(message: string, context?: Record<string, unknown>): void {
+-    this.parent.info(message, this.mergeContext(context));
+-  }
+-
+-  public warn(message: string, context?: Record<string, unknown>): void {
+-    this.parent.warn(message, this.mergeContext(context));
+-  }
+-
+-  public error(message: string, context?: Record<string, unknown>): void {
+-    this.parent.error(message, this.mergeContext(context));
+-  }
+-
+-  public exception(message: string, error: Error, context?: Record<string, unknown>): void {
+-    this.parent.exception(message, error, this.mergeContext(context));
+-  }
+ }
+ 
+-/**
+- * Create and export the default logger instance - silent unless LOG_FILE_DIR is set
+- */
+-export const logger = Logger.getInstance({
+-  level: (process.env.LOG_LEVEL as LogLevel) || 'info',
+-  files: true,
+-  format: 'detailed',
+-  rotation: {
+-    enabled: true,
+-    maxSize: '50m',
+-    maxFiles: 10
+-  }
+-});
+-
+-export default logger;
++export const logger = Logger.getInstance();
+diff --git a/src/utils/rateLimiter.ts b/src/utils/rateLimiter.ts
+index 26d751e..e6937fb 100644
+--- a/src/utils/rateLimiter.ts
++++ b/src/utils/rateLimiter.ts
+@@ -45,6 +45,8 @@ export interface RateLimitEntry {
+   count: number;
+   /** When the window resets (timestamp) */
+   resetTime: number;
++  /** Key for this entry, stored for faster deletion */
++  key: string;
+ }
+ 
+ /**
+@@ -181,9 +183,10 @@ export class RateLimiter {
+       
+       // Create new entry or reset if expired
+       if (!entry || now >= entry.resetTime) {
+-        const newEntry = {
++        const newEntry: RateLimitEntry = {
+           count: 1,
+-          resetTime: now + this.config.windowMs
++          resetTime: now + this.config.windowMs,
++          key: limitKey
+         };
+         this.limits.set(limitKey, newEntry);
+         return newEntry;
+@@ -257,4 +260,4 @@ export const rateLimiter = new RateLimiter({
+ export default {
+   RateLimiter,
+   rateLimiter
+-};
+\ No newline at end of file
++};
+diff --git a/tsconfig.json b/tsconfig.json
+index 6a6c2d3..507aef8 100644
+--- a/tsconfig.json
++++ b/tsconfig.json
+@@ -1,16 +1,15 @@
+ {
+   "compilerOptions": {
+     "target": "ES2020",
+-    "module": "NodeNext",
+-    "moduleResolution": "NodeNext",
++    "module": "ESNext",
++    "moduleResolution": "node",
+     "esModuleInterop": true,
++    "strict": true,
+     "outDir": "./dist",
+     "rootDir": "./src",
+-    "strict": true,
+     "declaration": true,
+-    "sourceMap": true,
+-    "forceConsistentCasingInFileNames": true,
+-    "resolveJsonModule": true
++    "skipLibCheck": true,
++    "forceConsistentCasingInFileNames": true
+   },
+   "include": ["src/**/*"],
+   "exclude": ["node_modules", "dist"]
+diff --git a/tsconfig.scripts.json b/tsconfig.scripts.json
+deleted file mode 100644
+index 56e2281..0000000
+--- a/tsconfig.scripts.json
++++ /dev/null
+@@ -1,16 +0,0 @@
+-{
+-  "compilerOptions": {
+-    "target": "ES2020",
+-    "module": "NodeNext",
+-    "moduleResolution": "NodeNext",
+-    "esModuleInterop": true,
+-    "outDir": "./dist/scripts",
+-    "rootDir": "./scripts",
+-    "strict": true,
+-    "sourceMap": true,
+-    "forceConsistentCasingInFileNames": true,
+-    "resolveJsonModule": true
+-  },
+-  "include": ["scripts/**/*"],
+-  "exclude": ["node_modules", "dist"]
+-}
+\ No newline at end of file
