@@ -1,7 +1,7 @@
 {
   "name": "ntfy-mcp-server",
-  "version": "1.0.0",
-  "description": "A beginner-friendly foundation for building Model Context Protocol (MCP) servers (and in the future also clients) with TypeScript. This template provides a comprehensive starting point with production-ready utilities, well-structured code, and working examples for building an MCP server. Copy this repo to kickstart your own MCP server and set your **vibe code** session up for success!",
+  "version": "1.0.1",
+  "description": "An MCP (Model Context Protocol) server designed to interact with the ntfy push notification service. It enables LLMs and AI agents to send notifications to your devices with extensive customization options.",
   "main": "dist/index.js",
   "type": "module",
   "files": [
@@ -33,14 +33,17 @@
     "xss-filters": "^1.2.7"
   },
   "keywords": [
-    "typescript",
-    "template",
+    "ntfy",
+    "notifications",
+    "push-notifications",
     "MCP",
     "model-context-protocol",
-    "vibe-code",
     "LLM",
     "AI-integration",
-    "server"
+    "server",
+    "typescript",
+    "claude",
+    "messaging"
   ],
   "author": "Casey Hand @cyanheads",
   "license": "Apache-2.0"

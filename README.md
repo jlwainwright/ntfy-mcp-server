@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8.2-blue.svg)](https://www.typescriptlang.org/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-1.8.0-green.svg)](https://modelcontextprotocol.io/)
-[![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)](https://github.com/cyanheads/ntfy-mcp-server/releases)
+[![Version](https://img.shields.io/badge/Version-1.0.1-blue.svg)](https://github.com/cyanheads/ntfy-mcp-server/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Status](https://img.shields.io/badge/Status-Stable-green.svg)](https://github.com/cyanheads/ntfy-mcp-server)
 [![GitHub](https://img.shields.io/github/stars/cyanheads/ntfy-mcp-server?style=social)](https://github.com/cyanheads/ntfy-mcp-server)
@@ -67,7 +67,7 @@ This server implements the Model Context Protocol (MCP), enabling standardized c
    ```bash
    # Option 1: Install via npm
    npm install -g ntfy-mcp-server
-   
+
    # Option 2: Clone repository and build
    git clone https://github.com/cyanheads/ntfy-mcp-server.git
    cd ntfy-mcp-server
