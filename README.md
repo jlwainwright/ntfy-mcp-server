@@ -31,10 +31,10 @@ This server implements the Model Context Protocol (MCP), enabling standardized c
 [Ntfy](https://ntfy.sh/) is a simple HTTP-based pub-sub notification service that allows you to send notifications to your phone or desktop via simple HTTP requests. With this MCP server, LLM agents like Claude can send notifications to you through ntfy without needing direct HTTP access.
 
 ```
-┌───────────┐      ┌────────────────┐      ┌───────────────┐      ┌──────────┐
-│ LLM Agent │ ────▶│ Ntfy MCP Server│ ────▶│ Ntfy Service  │ ────▶│ Your     │
-│ (Claude)  │      │                │      │               │      │ Devices  │
-└───────────┘      └────────────────┘      └───────────────┘      └──────────┘
+┌───────────┐      ┌───────────┐      ┌───────────┐      ┌─────────┐
+│ LLM Agent │ ────▶│ Ntfy MCP  │ ────▶│ Ntfy      │ ────▶│ Your    │
+│ (Claude)  │      │ Server    │      │ Service   │      │ Devices │
+└───────────┘      └───────────┘      └───────────┘      └─────────┘
 ```
 
 ## Features
