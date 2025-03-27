@@ -65,14 +65,17 @@ export const registerNtfyResource = async (server: McpServer): Promise<void> => 
         
         // Resource handler
         async (uri, params) => {
-          // Decode the URI pathname to handle URL encoding
-          const decodedPathname = decodeURIComponent(uri.pathname);
+          // Extract the topic from the URI
+          const topic = params.topic;
           
-          // Handle both /default and default pathname formats for backward compatibility
-          if (decodedPathname !== '/default' && decodedPathname !== 'default') {
-            resourceLogger.error(`Invalid ntfy resource uri: ${uri.href}`, {
-              pathname: uri.pathname,
-              decodedPathname,
+          resourceLogger.info(`Processing ntfy resource request for topic: ${topic}`, {
+            topic,
+            href: uri.href
+          });
+          
+          // Check if the topic is valid
+          if (!topic) {
+            resourceLogger.error(`Missing topic in ntfy resource uri: ${uri.href}`, {
               href: uri.href,
               protocol: uri.protocol
             });

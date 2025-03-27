@@ -1,9 +1,9 @@
+import { config } from '../../../config/index.js';
 import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
 import { ErrorHandler } from '../../../utils/errorHandler.js';
 import { logger } from '../../../utils/logger.js';
 import { createRequestContext } from '../../../utils/security.js';
-import { config } from '../../../config/index.js';
-import { NtfyResourceQuery, NtfyResourceQuerySchema, NtfyResourceResponse } from './types.js';
+import { NtfyResourceResponse } from './types.js';
 
 // Create resource-specific logger
 const resourceLogger = logger.createChildLogger({
@@ -19,9 +19,13 @@ export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
   });
   const requestId = requestContext.requestId;
 
+  // Extract the topic from the URI pathname
+  const topic = uri.hostname || "";
+
   resourceLogger.info("Ntfy resource request received", { 
     requestId,
-    uri: uri.href
+    uri: uri.href,
+    topic
   });
 
   return ErrorHandler.tryCatch(async () => {
@@ -38,13 +42,60 @@ export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
       defaultTopic = "ATLAS"; 
     }
 
-    // Prepare response data
-    const responseData = {
-      defaultTopic,
-      timestamp: new Date().toISOString(),
-      requestUri: uri.href,
-      requestId
-    };
+    // Get recent messages asynchronously for this topic
+    let recentMessages = [];
+    try {
+      // Use a different topic for actual fetching based on whether this is default or not
+      const topicToFetch = topic === "default" ? defaultTopic : topic;
+      
+      // Attempt to fetch the 10 most recent messages
+      const response = await fetch(`${config.ntfy.baseUrl || 'https://ntfy.sh'}/${topicToFetch}/json?poll=1&since=30d`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        // Parse response - each line is a separate JSON object
+        const text = await response.text();
+        const lines = text.split('\n').filter(line => line.trim());
+        
+        // Parse each line as a JSON object and add to recent messages
+        recentMessages = lines.map(line => JSON.parse(line))
+          .filter(msg => msg.event === 'message')
+          .slice(0, 10); // Keep only the 10 most recent
+        
+        resourceLogger.info(`Retrieved ${recentMessages.length} recent messages`, {
+          topic: topicToFetch,
+          requestId
+        });
+      }
+    } catch (error) {
+      // Just log the error but don't fail the request
+      resourceLogger.warn(`Failed to fetch recent messages for topic`, {
+        topic,
+        error: error instanceof Error ? error.message : String(error),
+        requestId
+      });
+    }
+    
+    // Handle the "default" topic case specially
+    const responseData = topic === "default" ? 
+      {
+        defaultTopic,
+        timestamp: new Date().toISOString(),
+        requestUri: uri.href,
+        requestId,
+        recentMessages: recentMessages.length > 0 ? recentMessages : undefined
+      } : 
+      {
+        topic,
+        timestamp: new Date().toISOString(),
+        requestUri: uri.href,
+        requestId,
+        recentMessages: recentMessages.length > 0 ? recentMessages : undefined
+      };
 
     resourceLogger.info("Ntfy resource response data prepared", { 
       requestId,
