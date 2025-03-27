@@ -31,50 +31,52 @@ This server implements the Model Context Protocol (MCP), enabling standardized c
 [Ntfy](https://ntfy.sh/) is a simple HTTP-based pub-sub notification service that allows you to send notifications to your phone or desktop via simple HTTP requests. With this MCP server, LLM agents like Claude can send notifications to you through ntfy without needing direct HTTP access.
 
 ```
-┌───────────┐         ┌────────────────┐         ┌───────────────┐         ┌──────────┐
-│ LLM Agent │ ───────▶│ Ntfy MCP Server│ ───────▶│ Ntfy Service  │ ───────▶│ Your     │
-│ (Claude)  │         │                │         │               │         │ Devices  │
-└───────────┘         └────────────────┘         └───────────────┘         └──────────┘
+┌───────────┐      ┌────────────────┐      ┌───────────────┐      ┌──────────┐
+│ LLM Agent │ ────▶│ Ntfy MCP Server│ ────▶│ Ntfy Service  │ ────▶│ Your     │
+│ (Claude)  │      │                │      │               │      │ Devices  │
+└───────────┘      └────────────────┘      └───────────────┘      └──────────┘
 ```
 
 ## Features
 
-*   **MCP Server Implementation:** Built using the `@modelcontextprotocol/sdk` for seamless integration with LLM agents.
-*   **Ntfy Integration:** Provides a tool (`send_ntfy`) to send notifications with support for:
-    * Message prioritization (1-5 levels)
-    * Emoji tags 
-    * Clickable actions and buttons
-    * File attachments
-    * Delayed delivery
-    * Markdown formatting
-*   **Resource Exposure:** Exposes the configured default ntfy topic as an MCP resource.
-*   **TypeScript:** Modern, type-safe codebase with comprehensive type definitions.
-*   **Structured Logging:** Uses `winston` and `winston-daily-rotate-file` for detailed and rotatable logs.
-*   **Configuration Management:** Uses `dotenv` for easy environment-based configuration.
-*   **Utility Scripts:** Includes scripts for cleaning build artifacts and generating directory structure documentation.
-*   **Error Handling & Security:** Implements robust error handling, input sanitization (`sanitize-html`), and security filters (`xss-filters`).
+- **MCP Server Implementation:** Built using the `@modelcontextprotocol/sdk` for seamless integration with LLM agents.
+- **Ntfy Integration:** Provides a tool (`send_ntfy`) to send notifications with support for:
+  - Message prioritization (1-5 levels)
+  - Emoji tags
+  - Clickable actions and buttons
+  - File attachments
+  - Delayed delivery
+  - Markdown formatting
+- **Resource Exposure:** Exposes the configured default ntfy topic as an MCP resource.
+- **TypeScript:** Modern, type-safe codebase with comprehensive type definitions.
+- **Structured Logging:** Uses `winston` and `winston-daily-rotate-file` for detailed and rotatable logs.
+- **Configuration Management:** Uses `dotenv` for easy environment-based configuration.
+- **Utility Scripts:** Includes scripts for cleaning build artifacts and generating directory structure documentation.
+- **Error Handling & Security:** Implements robust error handling, input sanitization (`sanitize-html`), and security filters (`xss-filters`).
 
 ## Quick Start
 
-1. **Prerequisites:** 
-   * Node.js (v16+)
-   * npm or yarn
-   * An MCP-compatible client (Claude Desktop, Cline, etc.)
+1. **Prerequisites:**
+
+   - Node.js (v16+)
+   - npm or yarn
+   - An MCP-compatible client (Claude Desktop, Cline, etc.)
 
 2. **Install and Run:**
+
    ```bash
    # Clone repository (if applicable)
    git clone https://github.com/cyanheads/ntfy-mcp-server.git
    cd ntfy-mcp-server
-   
+
    # Install dependencies and build
    npm install
    npm run build
-   
+
    # Create .env file (optional but recommended)
    cp .env.example .env
    # Edit .env to set NTFY_DEFAULT_TOPIC
-   
+
    # Start the server
    npm start
    ```
@@ -86,20 +88,22 @@ This server implements the Model Context Protocol (MCP), enabling standardized c
 ## Installation
 
 1. **Clone the repository (if applicable):**
-    ```bash
-    git clone https://github.com/cyanheads/ntfy-mcp-server.git
-    cd ntfy-mcp-server
-    ```
+
+   ```bash
+   git clone https://github.com/cyanheads/ntfy-mcp-server.git
+   cd ntfy-mcp-server
+   ```
 
 2. **Install dependencies:**
-    ```bash
-    npm install
-    ```
+
+   ```bash
+   npm install
+   ```
 
 3. **Build the project:**
-    ```bash
-    npm run build
-    ```
+   ```bash
+   npm run build
+   ```
 
 ## Configuration
 
@@ -161,8 +165,8 @@ Add the following configuration to your Claude Desktop config file (usually loca
 }
 ```
 
-*Replace `/path/to/ntfy-mcp-server/dist/index.js` with the actual absolute path to the built server file.*
-*Adjust `env` variables as needed for your setup.*
+_Replace `/path/to/ntfy-mcp-server/dist/index.js` with the actual absolute path to the built server file._
+_Adjust `env` variables as needed for your setup._
 
 ### Ntfy Setup
 
@@ -205,24 +209,24 @@ Sends a notification message via the ntfy service.
 
 #### Key Arguments:
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `topic` | string | Yes | The ntfy topic to publish to. |
-| `message` | string | Yes | The main content of the notification (max 4096 bytes). |
-| `title` | string | No | Notification title (max 250 bytes). |
-| `tags` | string[] | No | Emojis or keywords for categorization (e.g., `["warning", "robot"]`). Max 5. |
-| `priority` | integer | No | Message priority: 1=min, 2=low, 3=default, 4=high, 5=max. |
-| `click` | string | No | URL to open when the notification is clicked. |
-| `actions` | array | No | Action buttons (view, http, broadcast). Max 3. |
-| `attachment` | object | No | URL and name of an attachment. |
-| `email` | string | No | Email address to forward the notification to. |
-| `delay` | string | No | Delay delivery (e.g., `30m`, `1h`, `tomorrow`). |
-| `cache` | string | No | Cache duration (e.g., `10m`, `1h`, `1d`). |
-| `firebase` | string | No | Firebase Cloud Messaging (FCM) topic to forward to. |
-| `id` | string | No | Unique ID for the message. |
-| `expires` | string | No | Message expiration (e.g., `10m`, `1h`, `1d`). |
-| `markdown` | boolean | No | Set to `true` to enable markdown formatting in the message. |
-| `baseUrl` | string | No | Override the default ntfy server URL for this request. |
+| Parameter    | Type     | Required | Description                                                                  |
+| ------------ | -------- | -------- | ---------------------------------------------------------------------------- |
+| `topic`      | string   | Yes      | The ntfy topic to publish to.                                                |
+| `message`    | string   | Yes      | The main content of the notification (max 4096 bytes).                       |
+| `title`      | string   | No       | Notification title (max 250 bytes).                                          |
+| `tags`       | string[] | No       | Emojis or keywords for categorization (e.g., `["warning", "robot"]`). Max 5. |
+| `priority`   | integer  | No       | Message priority: 1=min, 2=low, 3=default, 4=high, 5=max.                    |
+| `click`      | string   | No       | URL to open when the notification is clicked.                                |
+| `actions`    | array    | No       | Action buttons (view, http, broadcast). Max 3.                               |
+| `attachment` | object   | No       | URL and name of an attachment.                                               |
+| `email`      | string   | No       | Email address to forward the notification to.                                |
+| `delay`      | string   | No       | Delay delivery (e.g., `30m`, `1h`, `tomorrow`).                              |
+| `cache`      | string   | No       | Cache duration (e.g., `10m`, `1h`, `1d`).                                    |
+| `firebase`   | string   | No       | Firebase Cloud Messaging (FCM) topic to forward to.                          |
+| `id`         | string   | No       | Unique ID for the message.                                                   |
+| `expires`    | string   | No       | Message expiration (e.g., `10m`, `1h`, `1d`).                                |
+| `markdown`   | boolean  | No       | Set to `true` to enable markdown formatting in the message.                  |
+| `baseUrl`    | string   | No       | Override the default ntfy server URL for this request.                       |
 
 #### Example Usage:
 
@@ -376,12 +380,12 @@ Sends a notification message via the ntfy service.
 
 ## Available Scripts
 
-*   `npm run build`: Compiles the TypeScript source code to JavaScript in the `dist/` directory.
-*   `npm run clean`: Removes the `dist/` directory and cleans the contents of the `logs/` directory.
-*   `npm run rebuild`: Runs `clean` and then `build`.
-*   `npm run tree`: Generates a directory tree representation in `docs/tree.md`.
-*   `npm start`: Runs the compiled server from the `dist/` directory using Node.js.
-*   `npm run watch`: Tails the combined log file (`logs/combined.log`) for real-time monitoring.
+- `npm run build`: Compiles the TypeScript source code to JavaScript in the `dist/` directory.
+- `npm run clean`: Removes the `dist/` directory and cleans the contents of the `logs/` directory.
+- `npm run rebuild`: Runs `clean` and then `build`.
+- `npm run tree`: Generates a directory tree representation in `docs/tree.md`.
+- `npm start`: Runs the compiled server from the `dist/` directory using Node.js.
+- `npm run watch`: Tails the combined log file (`logs/combined.log`) for real-time monitoring.
 
 ## Contributing
 
