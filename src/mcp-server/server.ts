@@ -9,7 +9,7 @@ import { config } from "../config/index.js";
 import { BaseErrorCode, McpError } from "../types-global/errors.js";
 import { ErrorHandler } from "../utils/errorHandler.js";
 import { idGenerator } from "../utils/idGenerator.js";
-import { logger } from "../utils/logger.js";
+import { logger, ChildLogger } from "../utils/logger.js";
 import { createRequestContext } from "../utils/requestContext.js";
 import { configureContext, sanitizeInput } from "../utils/security.js";
 
@@ -27,16 +27,19 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 /**
  * Load package information directly from package.json
  * 
+ * @param logger - The logger instance to use for logging
  * @returns A promise resolving to an object with the package name and version
  */
-const loadPackageInfo = async (): Promise<{ name: string; version: string }> => {
+const loadPackageInfo = async (loggerInstance?: ChildLogger): Promise<{ name: string; version: string }> => {
+  const pkgLogger = loggerInstance || logger.createChildLogger({ module: 'PackageInfo' });
+  
   return await ErrorHandler.tryCatch(
     async () => {
       // Use the globally defined __dirname from the top of the file
       const pkgPath = path.resolve(__dirname, '../../package.json');
       const safePath = sanitizeInput.path(pkgPath);
       
-      console.error(`Looking for package.json at: ${safePath}`);
+      pkgLogger.debug(`Looking for package.json at: ${safePath}`);
       
       // Get file stats to check size before reading
       const stats = await fs.stat(safePath);
@@ -187,7 +190,6 @@ export const createMcpServer = async () => {
     });
   });
   
-  console.error("Initializing MCP server...");
   serverLogger.info("Initializing server...");
   
   const timers: Array<NodeJS.Timeout> = [];
@@ -195,22 +197,21 @@ export const createMcpServer = async () => {
   return await ErrorHandler.tryCatch(
     async () => {
       // Load package info asynchronously
-      const packageInfo = await loadPackageInfo();
+      const packageInfo = await loadPackageInfo(serverLogger);
       
       // Update logger with package info
-      console.error("Loaded package info:", packageInfo.name, packageInfo.version);
       serverLogger.info("Loaded package info", {
         name: packageInfo.name,
         version: packageInfo.version
       });
 
       // Create the MCP server instance
-      console.error("Creating MCP server instance...");
+      serverLogger.debug("Creating MCP server instance...");
       server = new McpServer({
         name: packageInfo.name,
         version: packageInfo.version
       });
-      console.error("MCP server instance created");
+      serverLogger.debug("MCP server instance created");
       
       // Register tools and resources in parallel with error handling
       type RegistrationResult = {
@@ -225,7 +226,7 @@ export const createMcpServer = async () => {
         name: string,
         registerFn: () => Promise<void>
       ): Promise<RegistrationResult> => {
-        console.error(`Registering ${type}: ${name}`);
+        serverLogger.debug(`Registering ${type}: ${name}`);
         try {
           await ErrorHandler.tryCatch(
             async () => await registerFn(),
@@ -243,16 +244,16 @@ export const createMcpServer = async () => {
             serverState.registeredResources.add(name);
           }
           
-          console.error(`Successfully registered ${type}: ${name}`);
+          serverLogger.debug(`Successfully registered ${type}: ${name}`);
           return { success: true, type, name };
         } catch (error) {
-          console.error(`Failed to register ${type}: ${name}`, error);
+          serverLogger.error(`Failed to register ${type}: ${name}`, { error });
           return { success: false, type, name, error };
         }
       };
       
       // Register components with proper error handling
-      console.error("Registering components...");
+      serverLogger.debug("Registering components...");
       const registrationPromises: Promise<RegistrationResult>[] = [
         registerComponent('tool', 'send_ntfy', () => registerNtfyTool(server!)),
         registerComponent('resource', 'ntfy-resource', () => registerNtfyResource(server!)),
@@ -278,37 +279,37 @@ export const createMcpServer = async () => {
       
       // Process failed registrations
       if (failedRegistrations.length > 0) {
-        console.error(`${failedRegistrations.length} registrations failed initially`, 
-          failedRegistrations.map(f => `${f.type}:${f.name}`));
-        
         serverLogger.warn(`${failedRegistrations.length} registrations failed initially`, {
           failedComponents: failedRegistrations.map(f => `${f.type}:${f.name}`) 
         });
       }
 
       // Add debug logs to diagnose the connection issue
-      console.error("About to connect to stdio transport");
+      serverLogger.debug("About to connect to stdio transport");
       
       try {
         // Connect using stdio transport
         const transport = new StdioServerTransport();
-        console.error("Created StdioServerTransport instance");
+        serverLogger.debug("Created StdioServerTransport instance");
         
         // Set event handlers - using type assertion to avoid TS errors
         (server as any).onerror = (err: Error) => {
-          console.error(`Server error: ${err.message}`);
+          serverLogger.error(`Server error: ${err.message}`, { stack: err.stack });
         };
         
         // Skip setting onrequest since we don't have access to the type
         
         await server.connect(transport);
-        console.error("Connected to transport successfully");
+        serverLogger.debug("Connected to transport successfully");
       } catch (error) {
-        console.error("Error connecting to transport:", error);
+        serverLogger.error("Error connecting to transport", { 
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        });
         throw error;
       }
       
-      console.error("MCP server initialized and connected");
+      serverLogger.info("MCP server initialized and connected");
       return server;
     },
     {
@@ -327,7 +328,10 @@ export const createMcpServer = async () => {
       )
     }
   ).catch((error) => {
-    console.error("Fatal error in MCP server creation:", error);
+    serverLogger.error("Fatal error in MCP server creation", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     
     // Attempt to close server
     if (server) {
@@ -335,7 +339,10 @@ export const createMcpServer = async () => {
         server.close();
       } catch (closeError) {
         // Already in error state, just log
-        console.error("Error while closing server during error recovery:", closeError);
+        serverLogger.error("Error while closing server during error recovery", {
+          error: closeError instanceof Error ? closeError.message : String(closeError),
+          stack: closeError instanceof Error ? closeError.stack : undefined
+        });
       }
     }
     
