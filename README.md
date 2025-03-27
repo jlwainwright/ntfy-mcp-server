@@ -65,11 +65,12 @@ This server implements the Model Context Protocol (MCP), enabling standardized c
 2. **Install and Run:**
 
    ```bash
-   # Clone repository (if applicable)
+   # Option 1: Install via npm
+   npm install -g ntfy-mcp-server
+   
+   # Option 2: Clone repository and build
    git clone https://github.com/cyanheads/ntfy-mcp-server.git
    cd ntfy-mcp-server
-
-   # Install dependencies and build
    npm install
    npm run build
 
@@ -87,7 +88,27 @@ This server implements the Model Context Protocol (MCP), enabling standardized c
 
 ## Installation
 
-1. **Clone the repository (if applicable):**
+### Option 1: NPM Package (Recommended)
+
+1. **Install the package globally:**
+
+   ```bash
+   npm install -g ntfy-mcp-server
+   ```
+
+   This will install the server globally, making it available as a command-line tool.
+
+2. **Or install locally in your project:**
+
+   ```bash
+   npm install ntfy-mcp-server
+   ```
+
+   When installed locally, you can run it via npx or from node.
+
+### Option 2: From Source
+
+1. **Clone the repository:**
 
    ```bash
    git clone https://github.com/cyanheads/ntfy-mcp-server.git
@@ -127,6 +148,26 @@ NODE_ENV=development # Optional: Environment (development, production)
 
 Add the following configuration to your Cline MCP settings file (usually located at `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` on macOS):
 
+##### If installed globally:
+
+```json
+{
+  "mcpServers": {
+    "ntfy": {
+      "command": "ntfy-mcp-server",
+      "env": {
+        "NTFY_BASE_URL": "https://ntfy.sh",
+        "NTFY_DEFAULT_TOPIC": "your_default_topic",
+        "LOG_LEVEL": "info",
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}
+```
+
+##### If installed from source:
+
 ```json
 {
   "mcpServers": {
@@ -148,6 +189,26 @@ Add the following configuration to your Cline MCP settings file (usually located
 
 Add the following configuration to your Claude Desktop config file (usually located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
+##### If installed globally:
+
+```json
+{
+  "mcpServers": {
+    "ntfy": {
+      "command": "ntfy-mcp-server",
+      "env": {
+        "NTFY_BASE_URL": "https://ntfy.sh",
+        "NTFY_DEFAULT_TOPIC": "your_default_topic",
+        "LOG_LEVEL": "info",
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}
+```
+
+##### If installed from source:
+
 ```json
 {
   "mcpServers": {
@@ -165,7 +226,7 @@ Add the following configuration to your Claude Desktop config file (usually loca
 }
 ```
 
-_Replace `/path/to/ntfy-mcp-server/dist/index.js` with the actual absolute path to the built server file._
+_For source installation, replace `/path/to/ntfy-mcp-server/dist/index.js` with the actual absolute path to the built server file._
 _Adjust `env` variables as needed for your setup._
 
 ### Ntfy Setup
