@@ -11,7 +11,8 @@ const resourceLogger = logger.createChildLogger({
   service: 'NtfyResource'
 });
 
-export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
+// Updated signature to accept topic explicitly
+export const getNtfyTopic = async (topic: string, uri: URL): Promise<NtfyResourceResponse> => { 
   // Create a request context with unique ID
   const requestContext = createRequestContext({ 
     operation: 'getNtfyTopic',
@@ -19,8 +20,8 @@ export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
   });
   const requestId = requestContext.requestId;
 
-  // Extract the topic from the URI pathname
-  const topic = uri.hostname || "";
+  // Topic is now passed as an argument, no need to extract from hostname
+  // const topic = uri.hostname || ""; // Removed
 
   resourceLogger.info("Ntfy resource request received", { 
     requestId,
@@ -31,28 +32,43 @@ export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
   return ErrorHandler.tryCatch(async () => {
     // Get the default topic from configuration
     const ntfyConfig = config.ntfy;
-    let defaultTopic = ntfyConfig.defaultTopic;
-    
-    if (!defaultTopic) {
-      resourceLogger.warn("Default ntfy topic is not configured, using fallback value", { 
+    const defaultTopic = ntfyConfig.defaultTopic;
+
+    // Handle case where 'default' is requested but not configured
+    if (topic === "default" && !defaultTopic) {
+      resourceLogger.error("Requested default ntfy topic, but none is configured.", {
         requestId,
-        uri: uri.href 
-      });
-      // Provide a fallback value instead of failing
-      defaultTopic = "ATLAS"; 
+        uri: uri.href
+       });
+       throw new McpError(
+         BaseErrorCode.VALIDATION_ERROR, // Corrected error code
+         "Default ntfy topic requested via ntfy://default, but no default topic is configured in the environment variables.",
+         { requestId, uri: uri.toString() }
+      );
     }
+    
+    // Determine the actual topic to fetch messages for
+    const topicToFetch = topic === "default" ? defaultTopic : topic;
 
     // Get recent messages asynchronously for this topic
-    let recentMessages = [];
+    let recentMessages: any[] = []; // Define type for recentMessages
     try {
-      // Use a different topic for actual fetching based on whether this is default or not
-      const topicToFetch = topic === "default" ? defaultTopic : topic;
-      
-      // Attempt to fetch the 10 most recent messages
-      const response = await fetch(`${config.ntfy.baseUrl || 'https://ntfy.sh'}/${topicToFetch}/json?poll=1&since=30d`, {
+      // Ensure topicToFetch is valid before fetching
+      if (!topicToFetch) {
+         // This case should theoretically be caught by the check above, but adding for safety
+         throw new Error("Cannot fetch messages for an empty topic.");
+      }
+
+      // Attempt to fetch the 10 most recent messages - removed poll=1
+      const fetchUrl = `${config.ntfy.baseUrl || 'https://ntfy.sh'}/${topicToFetch}/json?since=30d`;
+      resourceLogger.debug("Fetching recent messages", { requestId, url: fetchUrl });
+
+      const response = await fetch(fetchUrl, {
         method: 'GET',
         headers: {
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          // Add API key header if configured
+          ...(config.ntfy.apiKey && { 'Authorization': `Bearer ${config.ntfy.apiKey}` })
         }
       });
       
@@ -62,8 +78,17 @@ export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
         const lines = text.split('\n').filter(line => line.trim());
         
         // Parse each line as a JSON object and add to recent messages
-        recentMessages = lines.map(line => JSON.parse(line))
-          .filter(msg => msg.event === 'message')
+        // Ensure messages have an 'id' and 'time' for potential sorting/filtering if needed later
+        recentMessages = lines.map(line => {
+            try {
+              return JSON.parse(line);
+            } catch (parseError) {
+              resourceLogger.warn("Failed to parse message line from ntfy stream", { requestId, line, error: parseError instanceof Error ? parseError.message : String(parseError) });
+              return null; // Skip invalid lines
+            }
+          })
+          .filter(msg => msg && msg.event === 'message' && msg.id && msg.time) // Ensure it's a valid message event
+          .sort((a, b) => b.time - a.time) // Sort by time descending (most recent first)
           .slice(0, 10); // Keep only the 10 most recent
         
         resourceLogger.info(`Retrieved ${recentMessages.length} recent messages`, {
@@ -80,17 +105,18 @@ export const getNtfyTopic = async (uri: URL): Promise<NtfyResourceResponse> => {
       });
     }
     
-    // Handle the "default" topic case specially
+    // Prepare response data based on whether 'default' was the requested topic
     const responseData = topic === "default" ? 
       {
-        defaultTopic,
+        requestedTopic: "default", // Clarify what was requested
+        resolvedTopic: defaultTopic, // Show the resolved topic
         timestamp: new Date().toISOString(),
         requestUri: uri.href,
         requestId,
-        recentMessages: recentMessages.length > 0 ? recentMessages : undefined
+        recentMessages: recentMessages.length > 0 ? recentMessages : undefined // Keep undefined if empty
       } : 
       {
-        topic,
+        topic: topicToFetch, // Use the actual topic fetched
         timestamp: new Date().toISOString(),
         requestUri: uri.href,
         requestId,

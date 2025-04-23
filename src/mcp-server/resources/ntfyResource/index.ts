@@ -1,6 +1,5 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { BaseErrorCode, McpError } from '../../../types-global/errors.js';
-import { ErrorHandler } from '../../../utils/errorHandler.js';
 import { ChildLogger } from '../../../utils/logger.js';
 import { registerResource } from '../../utils/registrationHelper.js';
 import { getNtfyTopic } from './getNtfyTopic.js';
@@ -65,30 +64,36 @@ export const registerNtfyResource = async (server: McpServer): Promise<void> => 
         
         // Resource handler
         async (uri, params) => {
-          // Extract the topic from the URI
-          const topic = params.topic;
+          // Extract the topic from the URI parameters provided by the SDK
+          const topicParam = params.topic;
           
-          resourceLogger.info(`Processing ntfy resource request for topic: ${topic}`, {
-            topic,
+          resourceLogger.info(`Processing ntfy resource request for topic parameter: ${topicParam}`, {
+            topicParam,
             href: uri.href
           });
           
-          // Check if the topic is valid
-          if (!topic) {
-            resourceLogger.error(`Missing topic in ntfy resource uri: ${uri.href}`, {
+          // Check if the topic parameter is valid and is a string
+          if (typeof topicParam !== 'string' || !topicParam) {
+            resourceLogger.error(`Invalid or missing topic parameter in ntfy resource uri: ${uri.href}`, {
               href: uri.href,
-              protocol: uri.protocol
+              params: params,
+              topicType: typeof topicParam
             });
             
+            // Use VALIDATION_ERROR as it's an issue with the input derived from the URI
             throw new McpError(
-              BaseErrorCode.NOT_FOUND,
-              `Resource not found: ${uri.href}`,
-              { uri: uri.href }
+              BaseErrorCode.VALIDATION_ERROR, 
+              `Invalid resource URI: Topic parameter must be a non-empty string in ${uri.href}`,
+              { uri: uri.href, params: params }
             );
           }
+
+          // Now we know topicParam is a string
+          const topic: string = topicParam;
           
           // Process the request using our dedicated handler
-          return await getNtfyTopic(uri);
+          // Pass the validated topic string and the original URI to the handler
+          return await getNtfyTopic(topic, uri);
         }
       );
       
