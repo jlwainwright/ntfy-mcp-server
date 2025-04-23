@@ -1,27 +1,23 @@
 # ntfy-mcp-server - Directory Structure
 
-Generated on: 2025-03-21 10:39:58
+Generated on: 2025-04-23 08:31:46
 
 
 ```
 ntfy-mcp-server
 ├── docs
     └── tree.md
-├── logs
 ├── scripts
     ├── clean.ts
     └── tree.ts
 ├── src
     ├── config
-    │   ├── envConfig.ts
-    │   ├── index.ts
-    │   └── mcpConfig.ts
+    │   └── index.ts
     ├── mcp-server
     │   ├── resources
-    │   │   └── echoResource
-    │   │   │   ├── getEchoMessage.ts
+    │   │   └── ntfyResource
+    │   │   │   ├── getNtfyTopic.ts
     │   │   │   ├── index.ts
-    │   │   │   ├── README.md
     │   │   │   └── types.ts
     │   ├── tools
     │   │   └── ntfyTool
@@ -30,7 +26,6 @@ ntfy-mcp-server
     │   │   │   └── types.ts
     │   ├── utils
     │   │   └── registrationHelper.ts
-    │   ├── README.md
     │   └── server.ts
     ├── services
     │   └── ntfy
@@ -55,15 +50,13 @@ ntfy-mcp-server
     │   ├── sanitization.ts
     │   └── security.ts
     └── index.ts
-├── .clinerules
-├── .clinerules-code
-├── .env.example
+├── diff.tmp
 ├── LICENSE
 ├── package-lock.json
 ├── package.json
 ├── README.md
-├── tsconfig.json
-└── tsconfig.scripts.json
+├── repomix.config.json
+└── tsconfig.json
 
 ```
 
