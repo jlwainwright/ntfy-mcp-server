@@ -113,7 +113,7 @@ export const config = {
 configLogger.info('Configuration loaded', {
   environment: config.environment,
   logLevel: config.logLevel,
-  server: config.server,
+  server: { host: config.server.host }, // Log only host, not port
   ntfy: {
     baseUrl: config.ntfy.baseUrl,
     defaultTopic: config.ntfy.defaultTopic || '(not set)',
