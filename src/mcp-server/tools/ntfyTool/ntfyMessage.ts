@@ -25,9 +25,10 @@ const globalRateLimiter = new RateLimiter({
 
 // Map to cache per-topic rate limiters
 const topicRateLimiters = new Map<string, RateLimiter>();
+const MAX_CACHED_TOPIC_LIMITERS = 1000; // Limit the cache size
 
 /**
- * Gets or creates a rate limiter for a specific topic
+ * Gets or creates a rate limiter for a specific topic, with cache cleanup.
  * 
  * @param topic - The ntfy topic
  * @returns Rate limiter instance for the topic
@@ -36,6 +37,19 @@ function getTopicRateLimiter(topic: string): RateLimiter {
   const normalizedTopic = topic.toLowerCase().trim();
   
   if (!topicRateLimiters.has(normalizedTopic)) {
+    // Check cache size before adding a new limiter
+    if (topicRateLimiters.size >= MAX_CACHED_TOPIC_LIMITERS) {
+      // Remove the oldest entry (first key in insertion order)
+      const oldestTopic = topicRateLimiters.keys().next().value;
+      if (oldestTopic) {
+        topicRateLimiters.delete(oldestTopic);
+        ntfyToolLogger.debug(`Removed oldest topic rate limiter due to cache size limit: ${oldestTopic}`, {
+          cacheSize: topicRateLimiters.size,
+          limit: MAX_CACHED_TOPIC_LIMITERS
+        });
+      }
+    }
+
     // Make per-topic limit more restrictive than global
     const perTopicLimit = Math.min(50, Math.floor(rateLimit.maxRequests / 2));
     
@@ -44,6 +58,9 @@ function getTopicRateLimiter(topic: string): RateLimiter {
       maxRequests: perTopicLimit,
       errorMessage: `Rate limit exceeded for topic '${normalizedTopic}'. Please try again in {waitTime} seconds.`,
     }));
+    ntfyToolLogger.debug(`Created new rate limiter for topic: ${normalizedTopic}`, {
+      cacheSize: topicRateLimiters.size
+    });
   }
   
   return topicRateLimiters.get(normalizedTopic)!;
@@ -169,7 +186,9 @@ export const processNtfyMessage = async (
           action: sanitizeInput.string(action.action),
           url: action.url ? sanitizeInput.url(action.url) : undefined,
           method: action.method ? sanitizeInput.string(action.method) : undefined,
-          headers: action.headers,
+          // TODO: Review if action.headers need sanitization/validation based on ntfy processing.
+          // Currently passed through as-is.
+          headers: action.headers, 
           body: action.body ? sanitizeInput.string(action.body) : undefined,
           clear: action.clear
         })),

@@ -107,11 +107,11 @@ export interface ServerState {
   failedRegistrations: Array<{
     type: 'tool' | 'resource';
     name: string;
-    error: any;
-    attempts: number;
+    error: any; // Ensure error is always present
+    attempts: number; // Track attempts if retry logic is added
   }>;
-  requiredTools: Set<string>;
-  requiredResources: Set<string>;
+  requiredTools: Set<string>; // Tools essential for basic functionality
+  requiredResources: Set<string>; // Resources essential for basic functionality
 }
 
 /**
@@ -143,8 +143,8 @@ export const createMcpServer = async () => {
   // Initialize server variable outside try/catch
   let server: McpServer | undefined;
   
-  // Maximum registration retry attempts
-  const MAX_REGISTRATION_RETRIES = 3;
+  // Maximum registration retry attempts (currently not implemented, but placeholder)
+  const MAX_REGISTRATION_RETRIES = 1; 
   
   // Create a unique server instance ID
   const serverId = idGenerator.generateRandomString(8);
@@ -218,7 +218,7 @@ export const createMcpServer = async () => {
         success: boolean;
         type: 'tool' | 'resource';
         name: string;
-        error?: any;
+        error?: any; // Error is optional here as success=true means no error
       };
       
       const registerComponent = async (
@@ -245,10 +245,10 @@ export const createMcpServer = async () => {
           }
           
           serverLogger.debug(`Successfully registered ${type}: ${name}`);
-          return { success: true, type, name };
+          return { success: true, type, name }; // No error on success
         } catch (error) {
           serverLogger.error(`Failed to register ${type}: ${name}`, { error });
-          return { success: false, type, name, error };
+          return { success: false, type, name, error }; // Error included on failure
         }
       };
       
@@ -262,27 +262,60 @@ export const createMcpServer = async () => {
       const registrationResults = await Promise.allSettled(registrationPromises);
       
       // Process the results to find failed registrations
-      const failedRegistrations: Array<RegistrationResult & { attempts?: number }> = [];
-      
+      let hasRequiredFailure = false;
       registrationResults.forEach(result => {
         if (result.status === 'rejected') {
-          failedRegistrations.push({ 
-            success: false, 
+          // This indicates an unexpected error during the registerComponent wrapper itself
+          const failure = { 
             type: 'unknown' as 'tool' | 'resource', 
             name: 'unknown', 
-            error: result.reason 
-          });
+            error: result.reason ?? new Error('Unknown registration wrapper error'), // Ensure error exists
+            attempts: 1 // Assuming 1 attempt for now
+          };
+          serverState.failedRegistrations.push(failure);
+          serverLogger.error("Unexpected error during component registration wrapper", { failure });
+          // Assume any unknown failure could be critical
+          hasRequiredFailure = true; 
         } else if (!result.value.success) {
-          failedRegistrations.push(result.value);
+          // This indicates a failure within the specific registerFn (result.value.error should exist)
+          const failure = { 
+            type: result.value.type,
+            name: result.value.name,
+            // Provide a fallback error just in case, though logic implies error exists
+            error: result.value.error ?? new Error(`Unknown error registering ${result.value.type} ${result.value.name}`), 
+            attempts: 1 // Assuming 1 attempt for now
+          };
+          serverState.failedRegistrations.push(failure);
+          serverLogger.warn(`Registration failed for ${failure.type}: ${failure.name}`, { error: failure.error });
+          
+          // Check if the failed component was required
+          if ((failure.type === 'tool' && serverState.requiredTools.has(failure.name)) ||
+              (failure.type === 'resource' && serverState.requiredResources.has(failure.name))) {
+            serverLogger.error(`Required ${failure.type} '${failure.name}' failed to register. Server will be degraded.`, { error: failure.error });
+            hasRequiredFailure = true;
+          }
         }
       });
       
-      // Process failed registrations
-      if (failedRegistrations.length > 0) {
-        serverLogger.warn(`${failedRegistrations.length} registrations failed initially`, {
-          failedComponents: failedRegistrations.map(f => `${f.type}:${f.name}`) 
-        });
+      // Update server status based on registration results
+      const previousStatus = serverState.status;
+      if (hasRequiredFailure) {
+        serverState.status = 'degraded';
+      } else {
+        serverState.status = 'running'; // Move to running only if all required components registered
       }
+      
+      // Emit state change if status updated
+      if (serverState.status !== previousStatus) {
+        serverEvents.emitStateChange(previousStatus, serverState.status);
+      }
+
+      serverLogger.info(`Component registration complete. Status: ${serverState.status}`, {
+        registeredTools: Array.from(serverState.registeredTools),
+        registeredResources: Array.from(serverState.registeredResources),
+        failedCount: serverState.failedRegistrations.length,
+        failedComponents: serverState.failedRegistrations.map(f => `${f.type}:${f.name}`)
+      });
 
       // Add debug logs to diagnose the connection issue
       serverLogger.debug("About to connect to stdio transport");
@@ -292,9 +325,19 @@ export const createMcpServer = async () => {
         const transport = new StdioServerTransport();
         serverLogger.debug("Created StdioServerTransport instance");
         
-        // Set event handlers - using type assertion to avoid TS errors
+        // Set event handlers
+        // Using 'as any' for onerror as the type might not be directly exposed or stable in the SDK.
+        // This bypasses TypeScript checks but allows attaching the handler.
+        // TODO: Revisit if future SDK versions provide a type-safe way to attach error handlers.
         (server as any).onerror = (err: Error) => {
-          serverLogger.error(`Server error: ${err.message}`, { stack: err.stack });
+          serverLogger.error(`Server transport error: ${err.message}`, { stack: err.stack });
+          // Optionally update server state on transport errors
+          if (serverState.status !== 'error' && serverState.status !== 'shutting_down') {
+             const oldStatus = serverState.status;
+             serverState.status = 'error';
+             serverEvents.emitStateChange(oldStatus, 'error');
+          }
+          serverState.errors.push({ timestamp: new Date(), message: err.message, code: 'TRANSPORT_ERROR' });
         };
         
         // Skip setting onrequest since we don't have access to the type
@@ -306,7 +349,11 @@ export const createMcpServer = async () => {
           error: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined
         });
-        throw error;
+        // Update state on connection failure
+        const oldStatus = serverState.status;
+        serverState.status = 'error';
+        serverEvents.emitStateChange(oldStatus, 'error');
+        throw error; // Re-throw connection error
       }
       
       serverLogger.info("MCP server initialized and connected");
