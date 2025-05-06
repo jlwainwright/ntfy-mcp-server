@@ -1,6 +1,6 @@
 # ntfy-mcp-server - Directory Structure
 
-Generated on: 2025-04-23 08:31:46
+Generated on: 2025-05-06 00:21:02
 
 
 ```
@@ -50,12 +50,14 @@ ntfy-mcp-server
     │   ├── sanitization.ts
     │   └── security.ts
     └── index.ts
-├── diff.tmp
+├── Dockerfile
+├── env.json
 ├── LICENSE
 ├── package-lock.json
 ├── package.json
 ├── README.md
 ├── repomix.config.json
+├── smithery.yaml
 └── tsconfig.json
 
 ```
