@@ -1,6 +1,6 @@
 # ntfy-mcp-server - Directory Structure
 
-Generated on: 2025-05-06 00:21:02
+Generated on: 2025-05-06 00:27:19
 
 
 ```
@@ -9,6 +9,8 @@ ntfy-mcp-server
     └── tree.md
 ├── scripts
     ├── clean.ts
+    ├── fetch-openapi-spec.ts
+    ├── make-executable.ts
     └── tree.ts
 ├── src
     ├── config
@@ -49,6 +51,7 @@ ntfy-mcp-server
     │   ├── requestContext.ts
     │   ├── sanitization.ts
     │   └── security.ts
+    ├── .DS_Store
     └── index.ts
 ├── Dockerfile
 ├── env.json
