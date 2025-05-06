@@ -1,36 +1,54 @@
 {
   "name": "ntfy-mcp-server",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "An MCP (Model Context Protocol) server designed to interact with the ntfy push notification service. It enables LLMs and AI agents to send notifications to your devices with extensive customization options.",
   "main": "dist/index.js",
   "type": "module",
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cyanheads/ntfy-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cyanheads/ntfy-mcp-server/issues"
+  },
+  "homepage": "https://github.com/cyanheads/ntfy-mcp-server#readme",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node --loader ts-node/esm scripts/make-executable.ts dist/index.js",
     "clean": "ts-node scripts/clean.ts",
     "rebuild": "npm run clean && npm run build",
     "tree": "ts-node scripts/tree.ts",
     "start": "node dist/index.js",
-    "watch": "tail -f logs/combined.log"
+    "start:stdio": "MCP_LOG_LEVEL=debug MCP_TRANSPORT_TYPE=stdio node dist/index.js",
+    "start:http": "MCP_LOG_LEVEL=debug MCP_TRANSPORT_TYPE=http node dist/index.js",
+    "watch": "tail -f logs/combined.log",
+    "docs:generate": "typedoc",
+    "fetch-spec": "ts-node --esm scripts/fetch-openapi-spec.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.2",
-    "@types/node": "^22.14.1",
+    "@modelcontextprotocol/sdk": "^1.11.0",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.15.3",
     "@types/sanitize-html": "^2.15.0",
-    "@types/validator": "^13.15.0",
-    "@types/xss-filters": "^1.2.0",
+    "@types/validator": "13.15.0",
+    "chrono-node": "^2.8.0",
     "dotenv": "^16.5.0",
-    "path-normalize": "^6.0.13",
+    "express": "^5.1.0",
+    "ignore": "^7.0.4",
+    "jsonwebtoken": "^9.0.2",
+    "openai": "^4.96.2",
+    "partial-json": "^0.1.7",
     "sanitize-html": "^2.16.0",
+    "tiktoken": "^1.0.21",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
-    "undici-types": "^7.8.0",
-    "validator": "^13.15.0",
+    "validator": "13.15.0",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^5.0.0",
-    "xss-filters": "^1.2.7"
+    "yargs": "^17.7.2",
+    "zod": "^3.24.3"
   },
   "keywords": [
     "ntfy",
@@ -43,8 +61,22 @@
     "server",
     "typescript",
     "claude",
-    "messaging"
+    "messaging",
+    "template",
+    "client",
+    "sdk",
+    "http",
+    "sse",
+    "jwt",
+    "authentication"
   ],
   "author": "Casey Hand @cyanheads",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/js-yaml": "^4.0.9",
+    "axios": "^1.9.0",
+    "js-yaml": "^4.1.0",
+    "typedoc": "^0.28.3"
+  }
 }
