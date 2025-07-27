@@ -4,6 +4,9 @@
   "description": "An MCP (Model Context Protocol) server designed to interact with the ntfy push notification service. It enables LLMs and AI agents to send notifications to your devices with extensive customization options.",
   "main": "dist/index.js",
   "type": "module",
+  "bin": {
+    "ntfy-mcp-server": "./dist/index.js"
+  },
   "files": [
     "dist"
   ],

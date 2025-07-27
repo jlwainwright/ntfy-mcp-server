@@ -19,6 +19,9 @@ const __dirname = path.dirname(__filename);
 
 // Import tool and resource registrations
 import { registerNtfyTool } from "./tools/ntfyTool/index.js";
+import { registerGetMessagesTool } from "./tools/messagesTool/index.js";
+import { registerPollTopicTool } from "./tools/pollTool/index.js";
+import { registerSubscribeNtfyTool } from "./tools/subscriptionTool/index.js";
 import { registerNtfyResource } from "./resources/ntfyResource/index.js";
 
 // Maximum file size for package.json (5MB) to prevent potential DoS
@@ -36,8 +39,8 @@ const loadPackageInfo = async (loggerInstance?: ChildLogger): Promise<{ name: st
   return await ErrorHandler.tryCatch(
     async () => {
       // Use the globally defined __dirname from the top of the file
-      const pkgPath = path.resolve(__dirname, '../../package.json');
-      const safePath = sanitizeInput.path(pkgPath);
+      const pkgPath = path.resolve(__dirname, '../package.json');
+      const safePath = sanitizeInput.path(pkgPath, { allowAbsolute: true });
       
       pkgLogger.debug(`Looking for package.json at: ${safePath}`);
       
@@ -256,6 +259,9 @@ export const createMcpServer = async () => {
       serverLogger.debug("Registering components...");
       const registrationPromises: Promise<RegistrationResult>[] = [
         registerComponent('tool', 'send_ntfy', () => registerNtfyTool(server!)),
+        registerComponent('tool', 'get_messages', () => registerGetMessagesTool(server!)),
+        registerComponent('tool', 'poll_topic', () => registerPollTopicTool(server!)),
+        registerComponent('tool', 'subscribe_ntfy', () => registerSubscribeNtfyTool(server!)),
         registerComponent('resource', 'ntfy-resource', () => registerNtfyResource(server!)),
       ];
       

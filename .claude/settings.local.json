@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(npm run rebuild:*)",
+      "Bash(npm run build:*)",
+      "Bash(NTFY_BASE_URL=http://192.168.0.126 NTFY_DEFAULT_TOPIC=test NTFY_USERNAME=admin NTFY_PASSWORD=admin123 ntfy-mcp-server)",
+      "Bash(cp:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": []
+  }
+}

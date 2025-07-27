@@ -104,8 +104,16 @@ export const config = {
     baseUrl: process.env.NTFY_BASE_URL || 'https://ntfy.sh',
     defaultTopic: process.env.NTFY_DEFAULT_TOPIC || '',
     apiKey: process.env.NTFY_API_KEY || '',
+    username: process.env.NTFY_USERNAME || '',
+    password: process.env.NTFY_PASSWORD || '',
     maxMessageSize: parsers.number(process.env.NTFY_MAX_MESSAGE_SIZE, 4096),
     maxRetries: parsers.number(process.env.NTFY_MAX_RETRIES, 3),
+    
+    // Subscription and polling configuration
+    maxSubscriptions: parsers.number(process.env.NTFY_MAX_SUBSCRIPTIONS, 10),
+    pollStateTtl: parsers.number(process.env.NTFY_POLL_STATE_TTL, 3600000), // 1 hour default
+    defaultMessageLimit: parsers.number(process.env.NTFY_DEFAULT_MESSAGE_LIMIT, 100),
+    subscriptionTimeout: parsers.number(process.env.NTFY_SUBSCRIPTION_TIMEOUT, 300000), // 5 minutes default
   },
 };
 
@@ -118,6 +126,9 @@ configLogger.info('Configuration loaded', {
     baseUrl: config.ntfy.baseUrl,
     defaultTopic: config.ntfy.defaultTopic || '(not set)',
     hasApiKey: !!config.ntfy.apiKey,
+    hasAuth: !!(config.ntfy.username && config.ntfy.password),
+    maxSubscriptions: config.ntfy.maxSubscriptions,
+    defaultMessageLimit: config.ntfy.defaultMessageLimit,
   },
 });
 

@@ -4,12 +4,12 @@
 import { BaseErrorCode } from '../../types-global/errors.js';
 import { ErrorHandler } from '../../utils/errorHandler.js';
 import { logger } from '../../utils/logger.js';
-import { sanitizeInput } from '../../utils/sanitization.js';
+import { sanitizeInput, sanitizeInputForLogging } from '../../utils/sanitization.js';
 import { createRequestContext } from '../../utils/requestContext.js';
 import { idGenerator } from '../../utils/idGenerator.js';
-import { NtfyMessage, NtfySubscriptionOptions } from './types.js';
-import { DEFAULT_NTFY_BASE_URL } from './constants.js';
-import { NtfyParseError, ntfyErrorMapper } from './errors.js';
+import { NtfyMessage, NtfyNotificationMessage, NtfySubscriptionOptions } from './types.js';
+import { DEFAULT_NTFY_BASE_URL, DEFAULT_REQUEST_TIMEOUT } from './constants.js';
+import { NtfyParseError, NtfyConnectionError, NtfyInvalidTopicError, ntfyErrorMapper } from './errors.js';
 
 // Create a module-specific logger
 const moduleLogger = logger.createChildLogger({ 
@@ -494,4 +494,169 @@ export function createAbortControllerWithTimeout(timeoutMs: number): {
       moduleLogger.debug('Cleaned up AbortController timeout', { controlId });
     },
   };
+}
+
+/**
+ * Fetch messages from a topic using the polling API
+ * @param topic Topic to fetch messages from
+ * @param options Options for message fetching
+ * @returns Promise resolving to array of messages
+ */
+export async function fetchMessages(
+  topic: string,
+  options: NtfySubscriptionOptions & {
+    limit?: number;
+    baseUrl?: string;
+  } = {}
+): Promise<NtfyNotificationMessage[]> {
+  return ErrorHandler.tryCatch(
+    async () => {
+      const requestCtx = createRequestContext({
+        operation: 'fetchMessages',
+        topic,
+        serviceId: idGenerator.generateRandomString(8)
+      });
+
+      moduleLogger.debug('Fetching messages from topic', {
+        topic,
+        options: sanitizeInputForLogging(options),
+        requestId: requestCtx.requestId
+      });
+
+      // Validate topic
+      if (!validateTopicSync(topic)) {
+        throw new NtfyInvalidTopicError('Invalid topic name', topic);
+      }
+
+      // Build URL for polling
+      const baseUrl = options.baseUrl || DEFAULT_NTFY_BASE_URL;
+      const sanitizedTopic = sanitizeInput.string(topic);
+      const url = new URL(`${baseUrl}/${encodeURIComponent(sanitizedTopic)}/json`);
+
+      // Add polling parameter
+      url.searchParams.append('poll', '1');
+
+      // Add optional parameters
+      if (options.since) {
+        url.searchParams.append('since', String(options.since));
+      }
+      if (options.scheduled) {
+        url.searchParams.append('scheduled', '1');
+      }
+      if (options.id) {
+        url.searchParams.append('id', options.id);
+      }
+      if (options.priority) {
+        url.searchParams.append('priority', options.priority);
+      }
+      if (options.tags) {
+        url.searchParams.append('tags', options.tags);
+      }
+      if (options.title) {
+        url.searchParams.append('title', options.title);
+      }
+      if (options.message) {
+        url.searchParams.append('message', options.message);
+      }
+
+      // Create headers
+      const headers = createRequestHeadersSync(options);
+
+      moduleLogger.debug('Making HTTP request for messages', {
+        url: url.toString(),
+        requestId: requestCtx.requestId
+      });
+
+      // Make the request
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT)
+      });
+
+      if (!response.ok) {
+        moduleLogger.error('HTTP error fetching messages', {
+          status: response.status,
+          statusText: response.statusText,
+          url: url.toString(),
+          requestId: requestCtx.requestId
+        });
+        throw new NtfyConnectionError(
+          `HTTP Error: ${response.status} ${response.statusText}`,
+          url.toString()
+        );
+      }
+
+      // Parse response
+      const responseText = await response.text();
+      const messages: NtfyNotificationMessage[] = [];
+
+      if (responseText.trim()) {
+        // Split by lines and parse each JSON message
+        const lines = responseText.trim().split('\n');
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const message = parseJsonMessageSync(line) as NtfyNotificationMessage;
+              // Only include actual notification messages, not keepalive/open
+              if (message.event === 'message') {
+                messages.push(message);
+              }
+            } catch (error) {
+              moduleLogger.warn('Failed to parse message line', {
+                line: line.substring(0, 100),
+                error: error instanceof Error ? error.message : String(error),
+                requestId: requestCtx.requestId
+              });
+            }
+          }
+        }
+      }
+
+      // Apply limit if specified
+      const limit = options.limit || 100;
+      const limitedMessages = messages.slice(0, limit);
+
+      moduleLogger.info('Successfully fetched messages', {
+        topic,
+        totalMessages: messages.length,
+        returnedMessages: limitedMessages.length,
+        requestId: requestCtx.requestId
+      });
+
+      return limitedMessages;
+    },
+    {
+      operation: 'fetchMessages',
+      context: { topic },
+      input: sanitizeInputForLogging(options),
+      errorCode: BaseErrorCode.SERVICE_UNAVAILABLE,
+      errorMapper: ntfyErrorMapper,
+      rethrow: true
+    }
+  );
+}
+
+/**
+ * Create an enhanced subscription URL with additional options
+ * @param topic Topic to subscribe to
+ * @param endpoint Endpoint to use
+ * @param options Subscription options
+ * @param limit Optional message limit for polling
+ * @returns Built URL string
+ */
+export function buildEnhancedSubscriptionUrl(
+  topic: string,
+  endpoint: string,
+  options: NtfySubscriptionOptions & { limit?: number } = {},
+  limit?: number
+): string {
+  const baseUrl = buildSubscriptionUrlSync(topic, endpoint, options);
+  const url = new URL(baseUrl);
+  
+  if (limit && limit > 0) {
+    url.searchParams.append('limit', String(limit));
+  }
+  
+  return url.toString();
 }
