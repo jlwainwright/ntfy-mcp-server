@@ -7,7 +7,7 @@
 [![Status](https://img.shields.io/badge/Status-Stable-green.svg)](https://github.com/cyanheads/ntfy-mcp-server)
 [![GitHub](https://img.shields.io/github/stars/cyanheads/ntfy-mcp-server?style=social)](https://github.com/cyanheads/ntfy-mcp-server)
 
-An MCP (Model Context Protocol) server designed to interact with the [ntfy](https://ntfy.sh/) push notification service. It enables LLMs and AI agents to send notifications to your devices with extensive customization options.
+An MCP (Model Context Protocol) server designed to interact with the [ntfy](https://ntfy.sh/) push notification service. It enables LLMs and AI agents to both send notifications to your devices and receive/fetch messages from ntfy topics with extensive customization options.
 
 ## Table of Contents
 
@@ -32,21 +32,32 @@ This server implements the Model Context Protocol (MCP), enabling standardized c
 
 ```
 ┌───────────┐      ┌───────────┐      ┌───────────┐      ┌─────────┐
-│ LLM Agent │ ────▶│ Ntfy MCP  │ ────▶│ Ntfy      │ ────▶│ Your    │
+│ LLM Agent │ ◄────▶│ Ntfy MCP  │ ◄────▶│ Ntfy      │ ◄────▶│ Your    │
 │ (Claude)  │      │ Server    │      │ Service   │      │ Devices │
 └───────────┘      └───────────┘      └───────────┘      └─────────┘
+     │                    │                    │                │
+     │ send_ntfy          │ Bidirectional      │ Push/Pull      │
+     │ get_messages       │ Communication      │ Messages       │
+     │ poll_topic         │                    │                │
+     │ subscribe_ntfy     │                    │                │
 ```
 
 ## Features
 
 - **MCP Server Implementation:** Built using the `@modelcontextprotocol/sdk` for seamless integration with LLM agents.
-- **Ntfy Integration:** Provides a tool (`send_ntfy`) to send notifications with support for:
+- **Bidirectional Ntfy Integration:** Provides tools for both sending and receiving notifications:
+  - **Sending:** `send_ntfy` tool with support for:
   - Message prioritization (1-5 levels)
   - Emoji tags
   - Clickable actions and buttons
   - File attachments
   - Delayed delivery
   - Markdown formatting
+  - **Receiving:** `get_messages`, `poll_topic`, and `subscribe_ntfy` tools with support for:
+  - Historical message retrieval with filtering
+  - Stateful polling for new messages
+  - Real-time subscription management
+  - Message filtering by priority, tags, content, etc.
 - **Resource Exposure:** Exposes the configured default ntfy topic as an MCP resource.
 - **TypeScript:** Modern, type-safe codebase with comprehensive type definitions.
 - **Structured Logging:** Uses `winston` and `winston-daily-rotate-file` for detailed and rotatable logs.
@@ -136,6 +147,14 @@ Create a `.env` file in the project root based on `.env.example`:
 # Ntfy Configuration
 NTFY_BASE_URL=https://ntfy.sh  # Optional: Base URL of your ntfy instance
 NTFY_DEFAULT_TOPIC=your_default_topic # Optional: Default topic if none specified in requests
+NTFY_USERNAME=your_username # Optional: Username for authentication (if using private ntfy server)
+NTFY_PASSWORD=your_password # Optional: Password for authentication (if using private ntfy server)
+
+# Receiving Capabilities Configuration
+NTFY_MAX_SUBSCRIPTIONS=10 # Optional: Maximum concurrent subscriptions (default: 10)
+NTFY_POLL_STATE_TTL=3600000 # Optional: Polling state TTL in milliseconds (default: 1 hour)
+NTFY_DEFAULT_MESSAGE_LIMIT=100 # Optional: Default message limit for retrieval (default: 100)
+NTFY_SUBSCRIPTION_TIMEOUT=300000 # Optional: Subscription timeout in milliseconds (default: 5 minutes)
 
 # Application Configuration
 LOG_LEVEL=info # Optional: Logging level (debug, info, warn, error)
@@ -342,6 +361,185 @@ Sends a notification message via the ntfy service.
 }
 ```
 
+### `get_messages`
+
+Retrieves historical messages from an ntfy topic with filtering and pagination support.
+
+#### Key Arguments:
+
+| Parameter    | Type     | Required | Description                                                                  |
+| ------------ | -------- | -------- | ---------------------------------------------------------------------------- |
+| `topic`      | string   | Yes      | The ntfy topic to fetch messages from.                                       |
+| `since`      | string   | No       | Timestamp, duration, or message ID to start from (e.g., "1h", "2023-12-01T10:00:00Z"). |
+| `limit`      | number   | No       | Maximum number of messages to retrieve (default: 100, max: 1000).           |
+| `scheduled`  | boolean  | No       | Include scheduled/delayed messages.                                          |
+| `filters`    | object   | No       | Message filtering options.                                                   |
+| `baseUrl`    | string   | No       | Override the default ntfy server URL for this request.                       |
+
+#### Filter Options:
+
+| Parameter    | Type     | Description                                                                  |
+| ------------ | -------- | ---------------------------------------------------------------------------- |
+| `priority`   | string   | Filter by priority (comma-separated list, e.g., "4,5" for high and max).    |
+| `tags`       | string   | Filter by tags (comma-separated list).                                      |
+| `title`      | string   | Filter by message title (substring match).                                  |
+| `message`    | string   | Filter by message content (substring match).                                |
+| `id`         | string   | Filter by specific message ID.                                              |
+
+#### Example Usage:
+
+```javascript
+// Get recent messages
+{
+  "topic": "alerts",
+  "since": "1h",
+  "limit": 50
+}
+
+// Get messages with filters
+{
+  "topic": "alerts",
+  "since": "2023-12-01T00:00:00Z",
+  "filters": {
+    "priority": "4,5",
+    "tags": "warning,error"
+  }
+}
+```
+
+### `poll_topic`
+
+Polls an ntfy topic for new messages since the last poll, maintaining state between requests to avoid duplicates.
+
+#### Key Arguments:
+
+| Parameter     | Type     | Required | Description                                                                  |
+| ------------- | -------- | -------- | ---------------------------------------------------------------------------- |
+| `topic`       | string   | Yes      | The ntfy topic to poll.                                                      |
+| `resetState`  | boolean  | No       | Reset the polling state and start from the beginning.                       |
+| `limit`       | number   | No       | Maximum number of new messages to retrieve (default: 100, max: 1000).       |
+| `interval`    | number   | No       | Polling interval hint in milliseconds (1s to 1h, default: 30s).            |
+| `baseUrl`     | string   | No       | Override the default ntfy server URL for this request.                       |
+
+#### Example Usage:
+
+```javascript
+// First poll (gets recent messages)
+{
+  "topic": "alerts"
+}
+
+// Subsequent polls (only new messages)
+{
+  "topic": "alerts",
+  "limit": 10
+}
+
+// Reset polling state
+{
+  "topic": "alerts",
+  "resetState": true
+}
+```
+
+#### Example Response:
+
+```json
+{
+  "success": true,
+  "topic": "alerts",
+  "newMessageCount": 2,
+  "newMessages": [
+    {
+      "id": "abc123",
+      "time": 1743064235,
+      "event": "message",
+      "topic": "alerts",
+      "message": "New alert message",
+      "title": "Alert"
+    }
+  ],
+  "pollState": {
+    "lastMessageId": "abc123",
+    "lastPollTime": 1743064240000,
+    "totalMessagesSeen": 15,
+    "nextPollRecommended": 1743064270000
+  },
+  "timestamp": "2023-12-01T10:30:40.000Z"
+}
+```
+
+### `subscribe_ntfy`
+
+Manages real-time subscriptions to ntfy topics with support for starting, stopping, checking status, and listing subscriptions.
+
+#### Key Arguments:
+
+| Parameter        | Type     | Required | Description                                                                  |
+| ---------------- | -------- | -------- | ---------------------------------------------------------------------------- |
+| `topic`          | string   | Yes*     | The ntfy topic to subscribe to (required for start action).                 |
+| `action`         | string   | Yes      | Action to perform: "start", "stop", "status", or "list".                    |
+| `subscriptionId` | string   | No*      | Subscription ID (required for stop/status actions).                         |
+| `options`        | object   | No       | Subscription configuration options.                                          |
+| `baseUrl`        | string   | No       | Override the default ntfy server URL for this request.                       |
+
+#### Subscription Options:
+
+| Parameter    | Type     | Description                                                                  |
+| ------------ | -------- | ---------------------------------------------------------------------------- |
+| `poll`       | boolean  | Use polling instead of streaming connection.                                |
+| `since`      | string   | Start from specific timestamp, duration, or message ID.                     |
+| `scheduled`  | boolean  | Include scheduled/delayed messages.                                         |
+| `timeout`    | number   | Subscription timeout in milliseconds (1s to 1h).                           |
+| `filters`    | object   | Message filtering options (same as get_messages).                           |
+
+#### Example Usage:
+
+```javascript
+// Start a new subscription
+{
+  "topic": "alerts",
+  "action": "start",
+  "options": {
+    "since": "1h",
+    "filters": {
+      "priority": "4,5"
+    }
+  }
+}
+
+// Stop a subscription
+{
+  "action": "stop",
+  "subscriptionId": "sub_abc123"
+}
+
+// Check subscription status
+{
+  "action": "status",
+  "subscriptionId": "sub_abc123"
+}
+
+// List all subscriptions
+{
+  "action": "list"
+}
+```
+
+#### Example Response:
+
+```json
+{
+  "success": true,
+  "action": "start",
+  "subscriptionId": "sub_abc123",
+  "topic": "alerts",
+  "status": "active",
+  "message": "Subscription started for topic \"alerts\". Messages will be received in real-time.",
+  "timestamp": "2023-12-01T10:30:40.000Z"
+}
+```
+
 ## Resources
 
 ### Direct Resources
@@ -380,11 +578,19 @@ Sends a notification message via the ntfy service.
 
 ## Use Cases
 
+### Sending Notifications (LLM → User)
 1. **Long-running Task Notifications** - Get notified when tasks like database backups, code generation, or data processing complete.
 2. **Scheduled Reminders** - Set delayed notifications for future events or reminders.
 3. **Alert Systems** - Set up critical alerts for monitoring systems or important events.
 4. **Mobile Notifications from LLMs** - Allow LLMs to send notifications directly to your phone.
 5. **Multi-step Process Updates** - Receive updates as different stages of a complex process complete.
+
+### Receiving Messages (User → LLM)
+1. **Message History Analysis** - Retrieve and analyze past notifications for patterns or trends.
+2. **Interactive Monitoring** - Poll topics for new messages and respond automatically.
+3. **Real-time Event Processing** - Subscribe to topics and process incoming messages in real-time.
+4. **Notification Acknowledgment** - Check if critical alerts were received and acknowledged.
+5. **Cross-device Communication** - Use ntfy as a communication bridge between different systems.
 
 ### Usage Examples
 
@@ -434,6 +640,61 @@ Sends a notification message via the ntfy service.
     }
   ],
   "markdown": true
+}
+</arguments>
+</use_mcp_tool>
+```
+
+#### Retrieving Historical Messages
+
+```
+<use_mcp_tool>
+<server_name>ntfy-mcp-server</server_name>
+<tool_name>get_messages</tool_name>
+<arguments>
+{
+  "topic": "alerts",
+  "since": "1h",
+  "filters": {
+    "priority": "4,5"
+  },
+  "limit": 20
+}
+</arguments>
+</use_mcp_tool>
+```
+
+#### Polling for New Messages
+
+```
+<use_mcp_tool>
+<server_name>ntfy-mcp-server</server_name>
+<tool_name>poll_topic</tool_name>
+<arguments>
+{
+  "topic": "system-events",
+  "limit": 10
+}
+</arguments>
+</use_mcp_tool>
+```
+
+#### Managing Real-time Subscriptions
+
+```
+<use_mcp_tool>
+<server_name>ntfy-mcp-server</server_name>
+<tool_name>subscribe_ntfy</tool_name>
+<arguments>
+{
+  "topic": "live-updates",
+  "action": "start",
+  "options": {
+    "filters": {
+      "priority": "3,4,5"
+    },
+    "since": "now"
+  }
 }
 </arguments>
 </use_mcp_tool>
